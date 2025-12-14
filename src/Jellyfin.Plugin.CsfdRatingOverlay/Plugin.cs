@@ -25,15 +25,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         new PluginPageInfo
         {
             Name = "csfdratingoverlay",
-            DisplayName = "ČSFD Rating Overlay",
-            EnableInMainMenu = false,
-            EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.html"
+            EmbeddedResourcePath = GetType().Namespace + ".Web.csfdratingoverlay.html"
         },
         new PluginPageInfo
         {
             Name = "csfdratingoverlayjs",
-            EnableInMainMenu = false,
-            EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.js"
+            EmbeddedResourcePath = GetType().Namespace + ".Web.csfdratingoverlay.js"
         }
     };
 }

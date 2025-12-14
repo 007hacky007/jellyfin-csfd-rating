@@ -4,6 +4,7 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 
@@ -31,6 +32,18 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        var assembly = typeof(Plugin).Assembly;
+        var informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+
+        _logger.LogInformation(
+            "Starting ČSFD Rating Overlay. Assembly={AssemblyName} Version={AssemblyVersion} InformationalVersion={InformationalVersion} Location={AssemblyLocation}",
+            assembly.FullName,
+            assembly.GetName().Version?.ToString() ?? "(unknown)",
+            informationalVersion ?? "(none)",
+            string.IsNullOrWhiteSpace(assembly.Location) ? "(empty)" : assembly.Location);
+
         var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         _injector.EnsureInjected(cfg);
         _queue.Start();
