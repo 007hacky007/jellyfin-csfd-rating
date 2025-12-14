@@ -2,12 +2,24 @@
 (() => {
   const logPrefix = '[CsfdOverlay]';
   console.log(logPrefix, 'Script initializing...');
-  const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
-  if (!apiBase && !window.ApiClient) {
-    console.warn(logPrefix, 'ApiClient not found; aborting');
-    return;
+
+  function waitForApiClient(attempt = 0) {
+    if (window.ApiClient) {
+      console.log(logPrefix, 'ApiClient found, proceeding.');
+      init();
+      return;
+    }
+    if (attempt > 100) {
+      console.warn(logPrefix, 'ApiClient not found after waiting; aborting');
+      return;
+    }
+    setTimeout(() => waitForApiClient(attempt + 1), 100);
   }
-  console.log(logPrefix, 'ApiClient found, proceeding.');
+
+  waitForApiClient();
+
+  function init() {
+  const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
 
   const sessionKey = 'csfdOverlayCache';
   // Expanded selector to catch more potential card types
@@ -254,5 +266,6 @@
     }
     badge.textContent = text;
     badge.classList.toggle('csfd-rating-badge--placeholder', Boolean(isPlaceholder));
+  }
   }
 })();
