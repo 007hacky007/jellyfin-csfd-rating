@@ -178,6 +178,14 @@
             id = parent.getAttribute('data-id') || parent.getAttribute('data-itemid');
         }
     }
+    return normalizeId(id);
+  }
+
+  function normalizeId(id) {
+    if (!id) return id;
+    if (id.length === 32 && /^[0-9a-fA-F]+$/.test(id)) {
+        return `${id.substring(0,8)}-${id.substring(8,12)}-${id.substring(12,16)}-${id.substring(16,20)}-${id.substring(20)}`;
+    }
     return id;
   }
 
