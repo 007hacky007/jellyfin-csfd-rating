@@ -62,6 +62,7 @@
 
     <script type="text/javascript">
         (function () {
+            console.log('[CsfdConfig] Script loaded');
             var pluginId = 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9';
 
             function getPluginConfiguration() {
@@ -124,23 +125,29 @@
             // Use jQuery event delegation if available, or standard addEventListener
             if (window.$) {
                 $(document).on('pageshow', pageId, function () {
+                    console.log('[CsfdConfig] pageshow fired (jQuery)');
                     var page = this;
                     Dashboard.showLoadingMsg();
                     getPluginConfiguration().then(function (config) {
+                        console.log('[CsfdConfig] Configuration loaded', config);
                         loadPage(page, config);
                         Dashboard.hideLoadingMsg();
                     }, function () {
+                        console.error('[CsfdConfig] Failed to load configuration');
                         Dashboard.hideLoadingMsg();
                     });
                 });
             } else {
                 document.querySelector(pageId).addEventListener('pageshow', function () {
+                    console.log('[CsfdConfig] pageshow fired (native)');
                     var page = this;
                     Dashboard.showLoadingMsg();
                     getPluginConfiguration().then(function (config) {
+                        console.log('[CsfdConfig] Configuration loaded', config);
                         loadPage(page, config);
                         Dashboard.hideLoadingMsg();
                     }, function () {
+                        console.error('[CsfdConfig] Failed to load configuration');
                         Dashboard.hideLoadingMsg();
                     });
                 });

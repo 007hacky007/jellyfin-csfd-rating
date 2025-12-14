@@ -1,14 +1,17 @@
 /* Jellyfin ČSFD Rating Overlay - injected client bundle */
 (() => {
   const logPrefix = '[CsfdOverlay]';
+  console.log(logPrefix, 'Script initializing...');
   const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
-  if (!apiBase || !window.ApiClient) {
+  if (!apiBase && !window.ApiClient) {
     console.warn(logPrefix, 'ApiClient not found; aborting');
     return;
   }
+  console.log(logPrefix, 'ApiClient found, proceeding.');
 
   const sessionKey = 'csfdOverlayCache';
-  const cardSelector = '[data-id], [data-itemid]';
+  // Expanded selector to catch more potential card types
+  const cardSelector = '[data-id], [data-itemid], .card, .itemImageContainer';
   const placeholderText = '- ⭐️';
   const batchSize = 20;
   const pending = new Set();
@@ -87,7 +90,11 @@
     if (matchesCard(root)) {
       prepareCard(root);
     }
-    root.querySelectorAll(cardSelector).forEach(el => prepareCard(el));
+    const found = root.querySelectorAll(cardSelector);
+    if (found.length > 0) {
+        // console.debug(logPrefix, 'Found cards:', found.length);
+        found.forEach(el => prepareCard(el));
+    }
   }
 
   function matchesCard(el) {
@@ -96,26 +103,53 @@
 
   function prepareCard(el) {
     if (rendered.has(el)) return;
-    rendered.add(el);
+    
     const id = getItemId(el);
-    if (!id) return;
-    ensureContainer(el);
-    if (cache.has(id)) {
-      applyBadge(el, cache.get(id));
-    } else {
-      renderPlaceholder(el);
+    if (!id) {
+        // Try to find ID in parent if not on element
+        const parentWithId = el.closest('[data-id], [data-itemid]');
+        if (parentWithId) {
+             // If we found a parent with ID, maybe we should be processing the parent instead?
+             // But let's just use that ID.
+             // Actually, if we are processing .itemImageContainer, the ID is usually on the parent .card
+        }
+        return;
     }
-    intersectionObserver.observe(el);
+    
+    rendered.add(el);
+    // console.debug(logPrefix, 'Preparing card', id);
+    
+    const container = ensureContainer(el);
+    if (cache.has(id)) {
+      applyBadge(container, cache.get(id));
+    } else {
+      renderPlaceholder(container);
+    }
+    intersectionObserver.observe(container);
   }
 
   function ensureContainer(el) {
-    const parent = el.closest('.card, .itemImageContainer, .listItem, .overflowEllipsis') || el;
-    parent.classList.add('csfd-rating-container');
-    return parent;
+    // If el is the image container, use it. If it's the card, find the image container.
+    // We want the badge on the image.
+    let target = el;
+    if (el.classList.contains('card')) {
+        const imgContainer = el.querySelector('.cardImageContainer, .itemImageContainer');
+        if (imgContainer) target = imgContainer;
+    }
+    
+    target.classList.add('csfd-rating-container');
+    return target;
   }
 
   function getItemId(el) {
-    return el.getAttribute('data-id') || el.getAttribute('data-itemid');
+    let id = el.getAttribute('data-id') || el.getAttribute('data-itemid');
+    if (!id) {
+        const parent = el.closest('[data-id], [data-itemid]');
+        if (parent) {
+            id = parent.getAttribute('data-id') || parent.getAttribute('data-itemid');
+        }
+    }
+    return id;
   }
 
   function queueFetch(id) {
