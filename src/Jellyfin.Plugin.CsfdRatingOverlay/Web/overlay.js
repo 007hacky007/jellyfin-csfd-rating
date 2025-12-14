@@ -250,29 +250,33 @@
   }
 
   function injectDetailRating(el, data) {
-      let span = el.querySelector('.csfd-detail-rating');
-      if (!span) {
-          span = document.createElement('span');
-          span.className = 'csfd-detail-rating';
-          span.style.marginLeft = '1em';
-          span.style.marginRight = '1em';
-          el.appendChild(span);
+      let container = el.querySelector('.csfd-detail-rating');
+      if (!container) {
+          container = document.createElement('div');
+          container.className = 'csfd-detail-rating mediaInfoItem';
+          
+          const starContainer = el.querySelector('.starRatingContainer');
+          if (starContainer) {
+              starContainer.after(container);
+          } else {
+              el.appendChild(container);
+          }
       }
 
       if (!data) {
-          span.textContent = 'CSFD: - ⭐️';
+          container.textContent = 'CSFD: - ⭐️';
           return;
       }
       
       const rawStatus = (data.status ?? data.Status ?? '').toString().toLowerCase();
       if (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1') {
-          span.textContent = 'CSFD: - ⭐️';
+          container.textContent = 'CSFD: - ⭐️';
           return;
       }
 
       const starsValue = typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null;
       const text = starsValue !== null ? `CSFD: ⭐️ ${starsValue.toFixed(1)}` : 'CSFD: - ⭐️';
-      span.textContent = text;
+      container.textContent = text;
   }
 
   function queueFetch(id) {
