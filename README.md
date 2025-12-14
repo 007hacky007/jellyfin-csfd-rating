@@ -10,9 +10,9 @@ Adds ČSFD ratings to Jellyfin movies and series, caches results, throttles outb
 - Optional web overlay bundle with viewport-aware fetching, sessionStorage caching, and batch calls.
 
 ## Build
-1. Install .NET SDK 8.0 (`dotnet` is currently missing on this machine; install via https://dotnet.microsoft.com/download). 
+1. Install .NET SDK 9.0 (`dotnet` is currently missing on this machine; install via https://dotnet.microsoft.com/download). 
 2. From the repo root: `dotnet restore` then `dotnet build -c Release`.
-3. The plugin DLL/zip can be taken from `src/Jellyfin.Plugin.CsfdRatingOverlay/bin/Release/net8.0/`.
+3. The plugin DLL/zip can be taken from `src/Jellyfin.Plugin.CsfdRatingOverlay/bin/Release/net9.0/`.
 
 ## Configuration
 - Dashboard → Plugins → ČSFD Rating Overlay.

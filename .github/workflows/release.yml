@@ -15,8 +15,8 @@ env:
   PROJECT_PATH: src/Jellyfin.Plugin.CsfdRatingOverlay/Jellyfin.Plugin.CsfdRatingOverlay.csproj
   PLUGIN_ID: Jellyfin.Plugin.CsfdRatingOverlay
   PLUGIN_GUID: b9643a4b-5b92-4f09-94c4-45ce6bfc57e9
-  TARGET_ABI: "10.9.0"
-  FRAMEWORK: "net8.0"
+  TARGET_ABI: "10.11.0"
+  FRAMEWORK: "net9.0"
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 permissions:

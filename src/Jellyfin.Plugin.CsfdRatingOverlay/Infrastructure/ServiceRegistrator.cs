@@ -6,12 +6,15 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
+using System.Composition;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 
 /// <summary>
 /// Registers plugin services into Jellyfin's DI container.
 /// </summary>
+// MEF export allows Jellyfin to discover this registrator without the PluginServiceRegistration attribute.
+[Export(typeof(IPluginServiceRegistrator))]
 public class ServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection services, MediaBrowser.Controller.IServerApplicationHost applicationHost)
