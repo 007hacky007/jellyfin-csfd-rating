@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
@@ -72,17 +73,20 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_cts == null)
+        var cts = Interlocked.Exchange(ref _cts, null);
+        if (cts == null)
         {
             return;
         }
 
-        _cts.Cancel();
+        _channel.Writer.TryComplete();
+        cts.Cancel();
         try
         {
             if (_worker != null)
             {
                 await _worker.ConfigureAwait(false);
+                _worker = null;
             }
         }
         catch (OperationCanceledException)
@@ -91,7 +95,8 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
         }
         finally
         {
-            _cts.Dispose();
+            cts.Dispose();
+            _started = false;
         }
     }
 }
