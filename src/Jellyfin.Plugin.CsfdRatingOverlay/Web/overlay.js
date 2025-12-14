@@ -45,6 +45,7 @@
       line-height: 1.2;
       pointer-events: none;
       box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      z-index: 1000;
     }
     .csfd-rating-badge--placeholder {
       background: rgba(255, 255, 255, 0.2);
@@ -110,6 +111,7 @@
   function ensureContainer(el) {
     const parent = el.closest('.card, .itemImageContainer, .listItem, .overflowEllipsis') || el;
     parent.classList.add('csfd-rating-container');
+    return parent;
   }
 
   function getItemId(el) {
@@ -209,12 +211,12 @@
   }
 
   function setBadge(el, text, isPlaceholder) {
-    ensureContainer(el);
-    let badge = el.querySelector('.csfd-rating-badge');
+    const container = ensureContainer(el);
+    let badge = container.querySelector('.csfd-rating-badge');
     if (!badge) {
       badge = document.createElement('div');
       badge.className = 'csfd-rating-badge';
-      el.appendChild(badge);
+      container.appendChild(badge);
     }
     badge.textContent = text;
     badge.classList.toggle('csfd-rating-badge--placeholder', Boolean(isPlaceholder));

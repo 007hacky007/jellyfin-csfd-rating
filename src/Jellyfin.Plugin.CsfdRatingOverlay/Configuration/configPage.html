@@ -61,78 +61,118 @@
     </div>
 
     <script type="text/javascript">
-        const CsfdConfig = {
-            pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
-            defaults: {
-                Enabled: true,
-                OverlayInjectionEnabled: true,
-                RequestDelayMs: 2000,
-                MaxRetries: 5,
-                CooldownMinMinutes: 10
-            },
-            setFields(config) {
-                document.querySelector('#chkEnabled').checked = config.Enabled ?? this.defaults.Enabled;
-                document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled ?? this.defaults.OverlayInjectionEnabled;
-                document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs ?? this.defaults.RequestDelayMs;
-                document.querySelector('#txtMaxRetries').value = config.MaxRetries ?? this.defaults.MaxRetries;
-                document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes ?? this.defaults.CooldownMinMinutes;
-            },
-            applyForm(config) {
-                config.Enabled = document.querySelector('#chkEnabled').checked;
-                config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
-                config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10) || this.defaults.RequestDelayMs;
-                config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10) || this.defaults.MaxRetries;
-                config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10) || this.defaults.CooldownMinMinutes;
-                return config;
+        (function () {
+            var pluginId = 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9';
+
+            function getPluginConfiguration() {
+                return ApiClient.getPluginConfiguration(pluginId);
             }
-        };
 
-        document.querySelector('#CsfdConfigPage')
-            .addEventListener('pageshow', function () {
+            function updatePluginConfiguration(config) {
+                return ApiClient.updatePluginConfiguration(pluginId, config);
+            }
+
+            function loadPage(page, config) {
+                page.querySelector('#chkEnabled').checked = config.Enabled;
+                page.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                page.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
+                page.querySelector('#txtMaxRetries').value = config.MaxRetries;
+                page.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
+            }
+
+            function savePage(page) {
                 Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(CsfdConfig.pluginId).then(config => {
-                    CsfdConfig.setFields(config);
-                    Dashboard.hideLoadingMsg();
-                }, () => Dashboard.hideLoadingMsg());
-            });
 
-        document.querySelector('#CsfdConfigForm')
-            .addEventListener('submit', function (e) {
+                getPluginConfiguration().then(function (config) {
+                    config.Enabled = page.querySelector('#chkEnabled').checked;
+                    config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
+                    config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10);
+                    config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10);
+                    config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10);
+
+                    updatePluginConfiguration(config).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Settings saved.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Error saving settings.');
+                    });
+                });
+            }
+
+            function wireAction(page, buttonId, apiPath) {
+                var btn = page.querySelector('#' + buttonId);
+                if (btn) {
+                    btn.addEventListener('click', function () {
+                        Dashboard.showLoadingMsg();
+                        ApiClient.ajax({
+                            type: 'POST',
+                            url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/' + apiPath)
+                        }).then(function () {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert('Action completed.');
+                        }, function () {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert('Action failed.');
+                        });
+                    });
+                }
+            }
+
+            var pageId = '#CsfdConfigPage';
+            
+            // Use jQuery event delegation if available, or standard addEventListener
+            if (window.$) {
+                $(document).on('pageshow', pageId, function () {
+                    var page = this;
+                    Dashboard.showLoadingMsg();
+                    getPluginConfiguration().then(function (config) {
+                        loadPage(page, config);
+                        Dashboard.hideLoadingMsg();
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+            } else {
+                document.querySelector(pageId).addEventListener('pageshow', function () {
+                    var page = this;
+                    Dashboard.showLoadingMsg();
+                    getPluginConfiguration().then(function (config) {
+                        loadPage(page, config);
+                        Dashboard.hideLoadingMsg();
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+            }
+
+            document.querySelector(pageId).querySelector('form').addEventListener('submit', function (e) {
                 e.preventDefault();
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(CsfdConfig.pluginId).then(config => {
-                    return ApiClient.updatePluginConfiguration(CsfdConfig.pluginId, CsfdConfig.applyForm(config));
-                }).then(result => {
-                    Dashboard.processPluginConfigurationUpdateResult(result);
-                }).finally(() => Dashboard.hideLoadingMsg());
-
+                savePage(document.querySelector(pageId));
                 return false;
             });
 
-        document.querySelector('#btnResetDefaults')
-            .addEventListener('click', function () {
-                CsfdConfig.setFields(CsfdConfig.defaults);
-            });
-
-        function wireAction(selector, path) {
-            const button = document.querySelector(selector);
-            if (!button) {
-                return;
+            // Wire up buttons - wait for page to be ready
+            // We can attach these listeners once
+            var page = document.querySelector(pageId);
+            if (page) {
+                wireAction(page, 'backfillButton', 'csfd/actions/backfill');
+                wireAction(page, 'retryNotFoundButton', 'csfd/actions/retry-notfound');
+                wireAction(page, 'clearCacheButton', 'csfd/actions/reset-cache');
+                
+                var btnReset = page.querySelector('#btnResetDefaults');
+                if (btnReset) {
+                    btnReset.addEventListener('click', function() {
+                        // Defaults
+                        page.querySelector('#chkEnabled').checked = true;
+                        page.querySelector('#chkOverlayInjectionEnabled').checked = true;
+                        page.querySelector('#txtRequestDelayMs').value = 2000;
+                        page.querySelector('#txtMaxRetries').value = 5;
+                        page.querySelector('#txtCooldownMinMinutes').value = 10;
+                    });
+                }
             }
-
-            button.addEventListener('click', function () {
-                Dashboard.showLoadingMsg();
-                ApiClient.ajax({
-                    type: 'POST',
-                    url: ApiClient.getUrl(`Plugins/CsfdRatingOverlay/${path}`),
-                    dataType: 'json'
-                }).finally(() => Dashboard.hideLoadingMsg());
-            });
-        }
-
-        wireAction('#backfillButton', 'csfd/actions/backfill');
-        wireAction('#retryNotFoundButton', 'csfd/actions/retry-notfound');
-        wireAction('#clearCacheButton', 'csfd/actions/reset-cache');
+        })();
     </script>
 </body>
 </html>
