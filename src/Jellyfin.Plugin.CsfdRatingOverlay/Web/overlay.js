@@ -22,8 +22,8 @@
   const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
 
   const sessionKey = 'csfdOverlayCache';
-  // Expanded selector to catch more potential card types
-  const cardSelector = '[data-id], [data-itemid], .card, .itemImageContainer';
+  // Restrict selector to only cards and image containers to avoid buttons/links
+  const cardSelector = '.card, .itemImageContainer, .cardImageContainer';
   const placeholderText = '- ⭐️';
   const batchSize = 20;
   const pending = new Set();
@@ -114,24 +114,26 @@
   }
 
   function prepareCard(el) {
+    // Skip if this element is a button or inside a button/text container
+    if (el.tagName === 'BUTTON' || el.closest('button') || el.closest('.cardText') || el.closest('.cardOverlayContainer')) {
+        return;
+    }
+
     if (rendered.has(el)) return;
     
     const id = getItemId(el);
     if (!id) {
-        // Try to find ID in parent if not on element
-        const parentWithId = el.closest('[data-id], [data-itemid]');
-        if (parentWithId) {
-             // If we found a parent with ID, maybe we should be processing the parent instead?
-             // But let's just use that ID.
-             // Actually, if we are processing .itemImageContainer, the ID is usually on the parent .card
-        }
         return;
     }
     
     rendered.add(el);
-    // console.debug(logPrefix, 'Preparing card', id);
     
     const container = ensureContainer(el);
+    if (!container) return; // Should not happen if ensureContainer works right, but safety first
+
+    // Avoid double injection if container already has badge
+    if (container.querySelector('.csfd-rating-badge')) return;
+
     if (cache.has(id)) {
       applyBadge(container, cache.get(id));
     } else {
@@ -149,6 +151,11 @@
         if (imgContainer) target = imgContainer;
     }
     
+    // Double check we are not targeting a button or something wrong
+    if (target.tagName === 'BUTTON' || target.closest('.cardOverlayContainer')) {
+        return null;
+    }
+
     target.classList.add('csfd-rating-container');
     return target;
   }
