@@ -94,42 +94,53 @@
             });
         }
 
-        document.querySelector('#CsfdConfigPage').addEventListener('pageshow', function () {
-            const page = this;
-            Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(pluginId)
-                .then(config => {
-                    setFields(page, config);
-                    Dashboard.hideLoadingMsg();
-                }, () => Dashboard.hideLoadingMsg());
-        });
+        function bindConfigPage() {
+            const page = document.querySelector('#CsfdConfigPage');
+            const form = document.querySelector('#CsfdConfigForm');
+            const resetButton = document.querySelector('#btnResetDefaults');
+            if (!page || !form) {
+                console.warn('ČSFD config page missing expected markup; skipping binding');
+                return;
+            }
 
-        document.querySelector('#CsfdConfigForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            const page = this.closest('#CsfdConfigPage');
-            Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(pluginId).then(config => {
-                config.Enabled = page.querySelector('#chkEnabled').checked;
-                config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
-                config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10) || defaults.RequestDelayMs;
-                config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10) || defaults.MaxRetries;
-                config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10) || defaults.CooldownMinMinutes;
+            page.addEventListener('viewshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(config => {
+                        setFields(page, config);
+                        Dashboard.hideLoadingMsg();
+                    }, () => Dashboard.hideLoadingMsg());
+            });
 
-                return ApiClient.updatePluginConfiguration(pluginId, config)
-                    .then(Dashboard.processPluginConfigurationUpdateResult, Dashboard.hideLoadingMsg);
-            }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(config => {
+                    config.Enabled = page.querySelector('#chkEnabled').checked;
+                    config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
+                    config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10) || defaults.RequestDelayMs;
+                    config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10) || defaults.MaxRetries;
+                    config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10) || defaults.CooldownMinMinutes;
 
-            return false;
-        });
+                    return ApiClient.updatePluginConfiguration(pluginId, config)
+                        .then(Dashboard.processPluginConfigurationUpdateResult, Dashboard.hideLoadingMsg);
+                }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
 
-        document.querySelector('#btnResetDefaults').addEventListener('click', function () {
-            const page = this.closest('#CsfdConfigPage');
-            setFields(page, defaults);
-        });
+                return false;
+            });
 
-        wireAction(document, '#backfillButton', 'csfd/actions/backfill');
-        wireAction(document, '#retryNotFoundButton', 'csfd/actions/retry-notfound');
-        wireAction(document, '#clearCacheButton', 'csfd/actions/reset-cache');
+            if (resetButton) {
+                resetButton.addEventListener('click', function () {
+                    setFields(page, defaults);
+                });
+            }
+
+            wireAction(page, '#backfillButton', 'csfd/actions/backfill');
+            wireAction(page, '#retryNotFoundButton', 'csfd/actions/retry-notfound');
+            wireAction(page, '#clearCacheButton', 'csfd/actions/reset-cache');
+        }
+
+        bindConfigPage();
     </script>
 </body>
 </html>

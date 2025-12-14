@@ -1,8 +1,11 @@
-using MediaBrowser.Model.Tasks;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
+using MediaBrowser.Model.Tasks;
+using System.Composition;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Tasks;
 
+[Export(typeof(IScheduledTask))]
+[ExportMetadata("Category", "Metadata")]
 public class CsfdBackfillTask : IScheduledTask
 {
     private readonly CsfdRatingService _ratingService;
