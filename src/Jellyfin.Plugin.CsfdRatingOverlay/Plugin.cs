@@ -3,6 +3,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using System.Globalization;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay;
 
@@ -24,9 +25,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         new PluginPageInfo
         {
-            Name = "csfdratingoverlay",
-            DisplayName = "ČSFD Rating Overlay",
-            EmbeddedResourcePath = GetType().Namespace + ".Web.configurationpage.html"
+            Name = Name,
+            DisplayName = Name,
+            EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace)
         }
     };
 }

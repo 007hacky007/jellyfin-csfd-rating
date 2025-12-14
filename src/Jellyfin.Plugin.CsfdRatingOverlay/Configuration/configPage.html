@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>ČSFD Rating Overlay</title>
+</head>
+<body>
+    <div id="CsfdConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="CsfdConfigForm">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h2 class="sectionTitle">ČSFD Rating Overlay</h2>
+                    </div>
+                    <div class="verticalSection">
+                        <p>Configure ČSFD fetching, retries, cache actions, and optional web overlay injection.</p>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="chkEnabled" />
+                            <span>Enable plugin</span>
+                        </label>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="chkOverlayInjectionEnabled" />
+                            <span>Enable web overlay injection</span>
+                        </label>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
+                        <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="txtMaxRetries">Max retries</label>
+                        <input is="emby-input" type="number" id="txtMaxRetries" min="1" step="1" required />
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="txtCooldownMinMinutes">Cooldown minimum (minutes)</label>
+                        <input is="emby-input" type="number" id="txtCooldownMinMinutes" min="1" step="1" required />
+                    </div>
+
+                    <div class="formButtons">
+                        <button is="emby-button" type="submit" class="raised button-submit block"><span>${Save}</span></button>
+                        <button is="emby-button" type="button" class="raised block" id="btnResetDefaults"><span>Reset to defaults</span></button>
+                    </div>
+
+                    <div class="formButtons" style="margin-top:16px;">
+                        <button is="emby-button" type="button" class="raised block" id="backfillButton"><span>Backfill library</span></button>
+                        <button is="emby-button" type="button" class="raised block" id="retryNotFoundButton"><span>Retry unmatched items</span></button>
+                        <button is="emby-button" type="button" class="raised block" id="clearCacheButton"><span>Reset cache</span></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        const pluginId = 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9';
+        const defaults = {
+            Enabled: true,
+            OverlayInjectionEnabled: true,
+            RequestDelayMs: 2000,
+            MaxRetries: 5,
+            CooldownMinMinutes: 10
+        };
+
+        function setFields(page, config) {
+            page.querySelector('#chkEnabled').checked = config.Enabled ?? defaults.Enabled;
+            page.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled ?? defaults.OverlayInjectionEnabled;
+            page.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs ?? defaults.RequestDelayMs;
+            page.querySelector('#txtMaxRetries').value = config.MaxRetries ?? defaults.MaxRetries;
+            page.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes ?? defaults.CooldownMinMinutes;
+        }
+
+        function wireAction(page, selector, path) {
+            const button = page.querySelector(selector);
+            if (!button) {
+                return;
+            }
+
+            button.addEventListener('click', () => {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl(`Plugins/CsfdRatingOverlay/${path}`),
+                    dataType: 'json'
+                }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
+            });
+        }
+
+        document.querySelector('#CsfdConfigPage').addEventListener('pageshow', function () {
+            const page = this;
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(pluginId)
+                .then(config => {
+                    setFields(page, config);
+                    Dashboard.hideLoadingMsg();
+                }, () => Dashboard.hideLoadingMsg());
+        });
+
+        document.querySelector('#CsfdConfigForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const page = this.closest('#CsfdConfigPage');
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(pluginId).then(config => {
+                config.Enabled = page.querySelector('#chkEnabled').checked;
+                config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
+                config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10) || defaults.RequestDelayMs;
+                config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10) || defaults.MaxRetries;
+                config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10) || defaults.CooldownMinMinutes;
+
+                return ApiClient.updatePluginConfiguration(pluginId, config)
+                    .then(Dashboard.processPluginConfigurationUpdateResult, Dashboard.hideLoadingMsg);
+            }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
+
+            return false;
+        });
+
+        document.querySelector('#btnResetDefaults').addEventListener('click', function () {
+            const page = this.closest('#CsfdConfigPage');
+            setFields(page, defaults);
+        });
+
+        wireAction(document, '#backfillButton', 'csfd/actions/backfill');
+        wireAction(document, '#retryNotFoundButton', 'csfd/actions/retry-notfound');
+        wireAction(document, '#clearCacheButton', 'csfd/actions/reset-cache');
+    </script>
+</body>
+</html>
