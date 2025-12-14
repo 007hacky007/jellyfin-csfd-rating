@@ -55,6 +55,52 @@ public class CsfdRatingController : ControllerBase
         return Ok(status);
     }
 
+    [HttpGet("csfd/unmatched")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> GetUnmatched(CancellationToken cancellationToken)
+    {
+        var items = await _ratingService.GetUnmatchedItemsAsync(cancellationToken);
+        return Ok(items);
+    }
+
+    [HttpPost("csfd/search")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> Search([FromBody] SearchRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Query))
+        {
+            return BadRequest("Query required");
+        }
+
+        var result = await _ratingService.SearchCsfdAsync(request.Query, cancellationToken);
+        if (!result.Success)
+        {
+            return StatusCode(500, result.Error);
+        }
+
+        return Ok(result.Payload);
+    }
+
+    [HttpPost("csfd/match")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> Match([FromBody] MatchRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request?.ItemId) || string.IsNullOrWhiteSpace(request?.CsfdId))
+        {
+            return BadRequest("ItemId and CsfdId required");
+        }
+
+        try
+        {
+            await _ratingService.ManualMatchAsync(request.ItemId, request.CsfdId, cancellationToken);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpGet("web/overlay.js")]
     [AllowAnonymous]
     public IActionResult GetOverlayScript()

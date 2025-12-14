@@ -110,12 +110,36 @@
                         </button>
                     </div>
                 </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Manual Matching</h3>
+                    <p>List items that failed to match or were not found, and manually search for them on ČSFD.</p>
+                    <button is="emby-button" type="button" class="raised" id="btnLoadUnmatched">
+                        <span>Load Unmatched Items</span>
+                    </button>
+                    <div id="unmatchedList" style="margin-top: 1em;"></div>
+                    
+                    <div id="matchDialog" style="display: none; background: rgba(0,0,0,0.2); padding: 1em; margin-top: 1em; border-radius: 4px;">
+                        <h4>Match Item: <span id="matchItemTitle"></span></h4>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="txtMatchSearch" placeholder="Search query..." />
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="btnMatchSearch">
+                            <span>Search</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnMatchCancel">
+                            <span>Cancel</span>
+                        </button>
+                        <div id="matchSearchResults" style="margin-top: 1em;"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <script type="text/javascript">
             var CsfdRatingOverlayConfig = {
                 pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
+                currentMatchItemId: null,
 
                 loadConfiguration: function () {
                     Dashboard.showLoadingMsg();
@@ -177,6 +201,97 @@
                             btnPause.setAttribute('data-action', 'pause');
                         }
                     });
+                },
+
+                loadUnmatched: function() {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/unmatched')).then(function (items) {
+                        Dashboard.hideLoadingMsg();
+                        var html = '<div class="paperList">';
+                        if (items.length === 0) {
+                            html += '<div class="listItem">No unmatched items found.</div>';
+                        } else {
+                            items.forEach(function(item) {
+                                html += '<div class="listItem" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5em;">';
+                                html += '<div style="flex-grow: 1;">';
+                                html += '<div class="listItemBodyText" style="font-weight: bold;">' + (item.Title || 'Unknown') + ' (' + (item.Year || '?') + ')</div>';
+                                html += '<div class="listItemBodyText secondary">' + item.Status + (item.LastError ? ': ' + item.LastError : '') + '</div>';
+                                html += '</div>';
+                                html += '<button is="emby-button" type="button" class="raised" onclick="CsfdRatingOverlayConfig.openMatch(\'' + item.ItemId + '\', \'' + (item.Title || '').replace(/'/g, "\\'") + '\')">Match</button>';
+                                html += '</div>';
+                            });
+                        }
+                        html += '</div>';
+                        document.querySelector('#unmatchedList').innerHTML = html;
+                    });
+                },
+
+                openMatch: function(itemId, title) {
+                    CsfdRatingOverlayConfig.currentMatchItemId = itemId;
+                    document.querySelector('#matchItemTitle').textContent = title;
+                    document.querySelector('#txtMatchSearch').value = title;
+                    document.querySelector('#matchSearchResults').innerHTML = '';
+                    document.querySelector('#matchDialog').style.display = 'block';
+                    document.querySelector('#unmatchedList').style.display = 'none';
+                },
+
+                closeMatch: function() {
+                    document.querySelector('#matchDialog').style.display = 'none';
+                    document.querySelector('#unmatchedList').style.display = 'block';
+                    CsfdRatingOverlayConfig.currentMatchItemId = null;
+                },
+
+                searchMatch: function() {
+                    var query = document.querySelector('#txtMatchSearch').value;
+                    if (!query) return;
+                    
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/search'),
+                        data: JSON.stringify({ Query: query }),
+                        contentType: 'application/json'
+                    }).then(function (results) {
+                        Dashboard.hideLoadingMsg();
+                        var html = '<div class="paperList">';
+                        if (results.length === 0) {
+                            html += '<div class="listItem">No results found.</div>';
+                        } else {
+                            results.forEach(function(res) {
+                                html += '<div class="listItem" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5em; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.1);" onclick="CsfdRatingOverlayConfig.selectMatch(\'' + res.CsfdId + '\')">';
+                                html += '<div>';
+                                html += '<div class="listItemBodyText" style="font-weight: bold;">' + res.Title + ' (' + (res.Year || '?') + ')</div>';
+                                html += '<div class="listItemBodyText secondary">ID: ' + res.CsfdId + (res.IsSeries ? ' (Series)' : '') + '</div>';
+                                html += '</div>';
+                                html += '</div>';
+                            });
+                        }
+                        html += '</div>';
+                        document.querySelector('#matchSearchResults').innerHTML = html;
+                    }, function() {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Search failed.');
+                    });
+                },
+
+                selectMatch: function(csfdId) {
+                    if (!confirm('Link this item to ČSFD ID ' + csfdId + '?')) return;
+                    
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/match'),
+                        data: JSON.stringify({ ItemId: CsfdRatingOverlayConfig.currentMatchItemId, CsfdId: csfdId }),
+                        contentType: 'application/json'
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        CsfdRatingOverlayConfig.closeMatch();
+                        CsfdRatingOverlayConfig.loadUnmatched();
+                        CsfdRatingOverlayConfig.loadStatus();
+                    }, function(err) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Match failed: ' + err);
+                    });
                 }
             };
 
@@ -212,6 +327,18 @@
                 if (confirm('Are you sure you want to clear the entire cache? This will force re-fetching of all ratings.')) {
                     CsfdRatingOverlayConfig.runAction('reset-cache');
                 }
+            });
+
+            document.querySelector('#btnLoadUnmatched').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.loadUnmatched();
+            });
+
+            document.querySelector('#btnMatchCancel').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.closeMatch();
+            });
+
+            document.querySelector('#btnMatchSearch').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.searchMatch();
             });
 
             document.addEventListener('pageshow', function (e) {

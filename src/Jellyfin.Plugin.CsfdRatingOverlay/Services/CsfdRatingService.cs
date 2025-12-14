@@ -1,4 +1,6 @@
+using System.Globalization;
 using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
+using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Matching;
 using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
@@ -17,17 +19,20 @@ public class CsfdRatingService
     private readonly ILibraryManager _libraryManager;
     private readonly ICsfdCacheStore _cacheStore;
     private readonly CsfdFetchQueue _queue;
+    private readonly CsfdClient _csfdClient;
     private readonly ILogger<CsfdRatingService> _logger;
 
     public CsfdRatingService(
         ILibraryManager libraryManager,
         ICsfdCacheStore cacheStore,
         CsfdFetchQueue queue,
+        CsfdClient csfdClient,
         ILogger<CsfdRatingService> logger)
     {
         _libraryManager = libraryManager;
         _cacheStore = cacheStore;
         _queue = queue;
+        _csfdClient = csfdClient;
         _logger = logger;
     }
 
@@ -165,6 +170,92 @@ public class CsfdRatingService
     public Task ClearCacheAsync(CancellationToken cancellationToken)
     {
         return _cacheStore.ClearAllAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<UnmatchedItem>> GetUnmatchedItemsAsync(CancellationToken cancellationToken)
+    {
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var result = new List<UnmatchedItem>();
+
+        foreach (var entry in entries)
+        {
+            if (entry.Status == CsfdCacheEntryStatus.Resolved)
+            {
+                continue;
+            }
+
+            if (Guid.TryParse(entry.ItemId, out var guid))
+            {
+                var item = _libraryManager.GetItemById(guid);
+                if (item != null)
+                {
+                    result.Add(new UnmatchedItem
+                    {
+                        ItemId = entry.ItemId,
+                        Title = item.Name,
+                        OriginalTitle = item.OriginalTitle,
+                        Year = item.ProductionYear,
+                        Status = entry.Status.ToString(),
+                        LastError = entry.LastError
+                    });
+                }
+            }
+        }
+        
+        return result.OrderBy(x => x.Title).ToList();
+    }
+
+    public Task<CsfdClientResult<IReadOnlyList<CsfdCandidate>>> SearchCsfdAsync(string query, CancellationToken cancellationToken)
+    {
+        return _csfdClient.SearchAsync(query, cancellationToken);
+    }
+
+    public async Task ManualMatchAsync(string itemId, string csfdId, CancellationToken cancellationToken)
+    {
+        var ratingResult = await _csfdClient.GetRatingPercentAsync(csfdId, cancellationToken).ConfigureAwait(false);
+        if (!ratingResult.Success)
+        {
+            throw new Exception(ratingResult.Error ?? "Failed to fetch rating");
+        }
+
+        var percent = ratingResult.Payload;
+        var stars = percent / 10.0;
+        var display = stars.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️";
+
+        string? fingerprint = null;
+        string? matchedTitle = null;
+        int? matchedYear = null;
+
+        if (Guid.TryParse(itemId, out var guid))
+        {
+            var item = _libraryManager.GetItemById(guid);
+            if (item != null)
+            {
+                fingerprint = MetadataFingerprint.Compute(item);
+                matchedTitle = item.Name;
+                matchedYear = item.ProductionYear;
+            }
+        }
+
+        var entry = new CsfdCacheEntry
+        {
+            ItemId = itemId,
+            Status = CsfdCacheEntryStatus.Resolved,
+            CsfdId = csfdId,
+            Percent = percent,
+            Stars = stars,
+            DisplayText = display,
+            MatchedTitle = matchedTitle,
+            MatchedYear = matchedYear,
+            CreatedUtc = DateTimeOffset.UtcNow,
+            AttemptedUtc = DateTimeOffset.UtcNow,
+            Fingerprint = fingerprint,
+            AttemptCount = 0,
+            LastError = null,
+            RetryAfterUtc = null
+        };
+
+        await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
     }
 
     private bool ShouldQueue(BaseItem item, CsfdCacheEntry? entry, string fingerprint, DateTimeOffset now)
