@@ -11,6 +11,13 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Injection;
 public class OverlayFileInjector
 {
     private const string Marker = "<!-- csfd-overlay -->";
+    private static readonly string[] FallbackWebRoots =
+    {
+        "/usr/share/jellyfin/web",
+        "/usr/lib/jellyfin/web",
+        "/config/www",
+        "/config/wwwroot"
+    };
     private readonly IApplicationPaths _appPaths;
     private readonly ILogger<OverlayFileInjector> _logger;
 
@@ -28,7 +35,7 @@ public class OverlayFileInjector
             return;
         }
 
-        var webRoot = _appPaths.WebPath;
+        var webRoot = ResolveWebRoot();
         if (string.IsNullOrWhiteSpace(webRoot))
         {
             _logger.LogWarning("Web root path not available; cannot inject overlay script");
@@ -76,5 +83,24 @@ public class OverlayFileInjector
         {
             _logger.LogWarning(ex, "Failed to inject overlay script into index.html");
         }
+    }
+
+    private string? ResolveWebRoot()
+    {
+        if (!string.IsNullOrWhiteSpace(_appPaths.WebPath) && Directory.Exists(_appPaths.WebPath))
+        {
+            return _appPaths.WebPath;
+        }
+
+        foreach (var path in FallbackWebRoots)
+        {
+            if (Directory.Exists(path))
+            {
+                _logger.LogWarning("Using fallback web root path {WebRoot}", path);
+                return path;
+            }
+        }
+
+        return null;
     }
 }
