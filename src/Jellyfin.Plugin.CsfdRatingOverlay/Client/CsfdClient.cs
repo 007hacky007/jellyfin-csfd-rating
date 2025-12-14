@@ -9,8 +9,12 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Client;
 
 public class CsfdClient
 {
-    private static readonly Regex CandidateRegex = new(@"/(?:film|serial)/(?<id>\d+)[^""]*""\s*[^>]*>(?<title>[^<]+)<", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex YearRegex = new(@"(?<year>19|20)\\d{2}", RegexOptions.Compiled);
+    // Updated regex to target the specific title link in search results to avoid matching image links
+    // Looking for: <h3 class="film-title-nooverflow">...<a href="/film/ID-TITLE/prehled/" ...>TITLE</a>...</h3>
+    private static readonly Regex CandidateRegex = new Regex(
+        @"<h3\s+class=""film-title-nooverflow"">.*?<a\s+href=""/film/(?<id>\d+)-[^""]*""[^>]*>(?<title>[^<]*)</a>(?<rest>.*?)</h3>",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex YearRegex = new(@"(?<year>(?:19|20)\d{2})", RegexOptions.Compiled);
     // Updated regex to be more robust against HTML changes and attributes
     private static readonly Regex PercentRegex = new(@"film-rating-average.*?>(?:\s*<[^>]*>)*\s*(?<percent>\d{1,3})%", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
@@ -125,7 +129,7 @@ public class CsfdClient
         return CsfdClientResult<int>.Ok(percent.Value);
     }
 
-    private static IReadOnlyList<CsfdCandidate> ParseCandidates(string html)
+    private static List<CsfdCandidate> ParseCandidates(string html)
     {
         var matches = CandidateRegex.Matches(html);
         var list = new List<CsfdCandidate>();
@@ -133,15 +137,16 @@ public class CsfdClient
         {
             var id = match.Groups["id"].Value;
             var title = WebUtility.HtmlDecode(match.Groups["title"].Value).Trim();
-            var slice = html.AsSpan(match.Index, Math.Min(200, html.Length - match.Index));
+            var rest = match.Groups["rest"].Value;
+
             int? year = null;
-            var yearMatch = YearRegex.Match(slice.ToString());
+            var yearMatch = YearRegex.Match(rest);
             if (yearMatch.Success && int.TryParse(yearMatch.Groups["year"].Value, out var parsedYear))
             {
                 year = parsedYear;
             }
 
-            var isSeries = html.Substring(Math.Max(0, match.Index - 20), Math.Min(20, match.Index)).Contains("serial", StringComparison.OrdinalIgnoreCase);
+            var isSeries = rest.Contains("(seriál)", StringComparison.OrdinalIgnoreCase) || rest.Contains("TV seriál", StringComparison.OrdinalIgnoreCase);
 
             list.Add(new CsfdCandidate
             {
