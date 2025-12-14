@@ -19,6 +19,9 @@ env:
   FRAMEWORK: "net8.0"
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
