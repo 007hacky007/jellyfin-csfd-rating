@@ -36,7 +36,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     public async Task<FetchWorkResult> ProcessAsync(CsfdFetchRequest request, CancellationToken cancellationToken)
     {
-        var config = CsfdRatingOverlayPlugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
         if (!config.Enabled)
         {
             return FetchWorkResult.Success;

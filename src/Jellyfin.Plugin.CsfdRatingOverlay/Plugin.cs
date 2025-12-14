@@ -3,18 +3,19 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using System.Globalization;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay;
 
-public class CsfdRatingOverlayPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    public CsfdRatingOverlayPlugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
     }
 
-    public static CsfdRatingOverlayPlugin Instance { get; private set; } = null!;
+    public static Plugin Instance { get; private set; } = null!;
 
     public override string Name => "ČSFD Rating Overlay";
 
@@ -24,8 +25,9 @@ public class CsfdRatingOverlayPlugin : BasePlugin<PluginConfiguration>, IHasWebP
     {
         new PluginPageInfo
         {
-            Name = "csfdratingoverlay",
-            EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+            Name = Name,
+            DisplayName = Name,
+            EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace)
         }
     };
 }

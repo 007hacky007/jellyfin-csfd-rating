@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -47,6 +48,34 @@ public class FileCsfdCacheStore : ICsfdCacheStore, IDisposable
     {
         var map = await LoadAsync(cancellationToken).ConfigureAwait(false);
         return map.Values.ToArray();
+    }
+
+    public async Task<CsfdCacheStats> GetStatsAsync(CancellationToken cancellationToken = default)
+    {
+        var map = await LoadAsync(cancellationToken).ConfigureAwait(false);
+        var stats = new CsfdCacheStats
+        {
+            TotalEntries = map.Count
+        };
+
+        foreach (var entry in map.Values)
+        {
+            switch (entry.Status)
+            {
+                case CsfdCacheEntryStatus.Resolved:
+                    stats.Resolved++;
+                    break;
+                case CsfdCacheEntryStatus.NotFound:
+                    stats.NotFound++;
+                    break;
+                case CsfdCacheEntryStatus.ErrorTransient:
+                case CsfdCacheEntryStatus.ErrorPermanent:
+                    stats.Errors++;
+                    break;
+            }
+        }
+
+        return stats;
     }
 
     public async Task UpsertAsync(CsfdCacheEntry entry, CancellationToken cancellationToken = default)

@@ -10,10 +10,19 @@ public class CsfdClient
 {
     private static readonly Regex CandidateRegex = new(@"/(?:film|serial)/(?<id>\d+)[^""]*""\s*[^>]*>(?<title>[^<]+)<", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex YearRegex = new(@"(?<year>19|20)\\d{2}", RegexOptions.Compiled);
-    private static readonly Regex PercentRegex = new(@"(?<percent>\\d{1,3})%", RegexOptions.Compiled);
+    // Updated regex to target the specific rating element class used by CSFD
+    private static readonly Regex PercentRegex = new(@"class=""[^""]*film-rating-average[^""]*""[^>]*>\s*(?<percent>\d{1,3})%", RegexOptions.Compiled);
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<CsfdClient> _logger;
+    
+    // Real browser User-Agents to avoid bot detection
+    private static readonly string[] UserAgents = new[]
+    {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+    };
 
     public CsfdClient(HttpClient httpClient, ILogger<CsfdClient> logger)
     {
@@ -25,15 +34,21 @@ public class CsfdClient
     {
         var url = $"https://www.csfd.cz/hledat/?q={Uri.EscapeDataString(query)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jellyfin-Csfd", "1.0"));
+        // Use a random real User-Agent
+        request.Headers.UserAgent.ParseAdd(UserAgents[Random.Shared.Next(UserAgents.Length)]);
+        
+        _logger.LogDebug("Fetching CSFD search: {Url}", url);
         var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        
         if (IsThrottle(response.StatusCode))
         {
+            _logger.LogWarning("CSFD search throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Throttle(GetRetryAfter(response), $"Search throttled: {(int)response.StatusCode}");
         }
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogError("CSFD search failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Fail($"HTTP {(int)response.StatusCode}");
         }
 
@@ -44,17 +59,24 @@ public class CsfdClient
 
     public async Task<CsfdClientResult<int>> GetRatingPercentAsync(string csfdId, CancellationToken cancellationToken)
     {
-        var url = $"https://www.csfd.cz/film/{csfdId}/";
+        // Append /prehled/ to match standard browser behavior and node-csfd-api
+        var url = $"https://www.csfd.cz/film/{csfdId}/prehled/";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jellyfin-Csfd", "1.0"));
+        // Use a random real User-Agent
+        request.Headers.UserAgent.ParseAdd(UserAgents[Random.Shared.Next(UserAgents.Length)]);
+        
+        _logger.LogDebug("Fetching CSFD rating: {Url}", url);
         var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        
         if (IsThrottle(response.StatusCode))
         {
+            _logger.LogWarning("CSFD rating throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<int>.Throttle(GetRetryAfter(response), $"Details throttled: {(int)response.StatusCode}");
         }
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogError("CSFD rating failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<int>.Fail($"HTTP {(int)response.StatusCode}");
         }
 

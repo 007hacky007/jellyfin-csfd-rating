@@ -15,9 +15,12 @@ env:
   PROJECT_PATH: src/Jellyfin.Plugin.CsfdRatingOverlay/Jellyfin.Plugin.CsfdRatingOverlay.csproj
   PLUGIN_ID: Jellyfin.Plugin.CsfdRatingOverlay
   PLUGIN_GUID: b9643a4b-5b92-4f09-94c4-45ce6bfc57e9
-  TARGET_ABI: "10.9.0"
-  FRAMEWORK: "net8.0"
+  TARGET_ABI: "10.11.0"
+  FRAMEWORK: "net9.0"
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -29,7 +32,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "9.0.x"
 
       - name: Determine version and tag
         shell: bash
@@ -68,7 +71,9 @@ jobs:
         shell: bash
         run: |
           SHA=$(sha256sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
+          MD5=$(md5sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
           echo "ZIP_SHA256=$SHA" >> $GITHUB_ENV
+          echo "ZIP_MD5=$MD5" >> $GITHUB_ENV
 
       - name: Generate manifest
         shell: bash
@@ -78,29 +83,31 @@ jobs:
         run: |
           mkdir -p artifacts
           cat > artifacts/manifest.json <<EOF
-{
-  "name": "ČSFD Rating Overlay",
-  "guid": "${PLUGIN_GUID}",
-  "overview": "ČSFD ratings with optional poster overlay for Jellyfin.",
-  "description": "Fetches and caches ČSFD ratings with throttling, admin actions, and an optional overlay badge injected into Jellyfin Web.",
-  "owner": "${OWNER}",
-  "category": "Metadata",
-  "manifestVersion": 1,
-  "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
-  "status": "stable",
-  "versions": [
-    {
-      "version": "${VERSION}",
-      "targetAbi": "${TARGET_ABI}",
-      "framework": "${FRAMEWORK}",
-      "sourceUrl": "${ASSET_URL}",
-      "checksum": "${ZIP_SHA256}",
-      "timestamp": "${TIMESTAMP}",
-      "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
-    }
-  ]
-}
-EOF
+          [
+            {
+              "name": "ČSFD Rating Overlay",
+              "guid": "${PLUGIN_GUID}",
+              "overview": "ČSFD ratings with optional poster overlay for Jellyfin.",
+              "description": "Fetches and caches ČSFD ratings with throttling, admin actions, and an optional overlay badge injected into Jellyfin Web.",
+              "owner": "${OWNER}",
+              "category": "Metadata",
+              "manifestVersion": 1,
+              "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
+              "status": "stable",
+              "versions": [
+                {
+                  "version": "${VERSION}",
+                  "targetAbi": "${TARGET_ABI}",
+                  "framework": "${FRAMEWORK}",
+                  "sourceUrl": "${ASSET_URL}",
+                  "checksum": "${ZIP_MD5}",
+                  "timestamp": "${TIMESTAMP}",
+                  "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                }
+              ]
+            }
+          ]
+          EOF
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2

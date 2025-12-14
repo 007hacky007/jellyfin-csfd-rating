@@ -47,11 +47,19 @@ public class CsfdRatingController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("csfd/status")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
+    {
+        var status = await _ratingService.GetStatusAsync(cancellationToken);
+        return Ok(status);
+    }
+
     [HttpGet("web/overlay.js")]
     [AllowAnonymous]
     public IActionResult GetOverlayScript()
     {
-        var cfg = CsfdRatingOverlayPlugin.Instance?.Configuration;
+        var cfg = Plugin.Instance?.Configuration;
         if (cfg != null && !cfg.OverlayInjectionEnabled)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Overlay injection disabled");
@@ -70,6 +78,22 @@ public class CsfdRatingController : ControllerBase
         return Content(content, "application/javascript");
     }
 
+    [HttpPost("csfd/actions/pause")]
+    [Authorize(Roles = "Administrator")]
+    public IActionResult Pause()
+    {
+        _ratingService.SetPaused(true);
+        return Ok(new { status = "paused" });
+    }
+
+    [HttpPost("csfd/actions/resume")]
+    [Authorize(Roles = "Administrator")]
+    public IActionResult Resume()
+    {
+        _ratingService.SetPaused(false);
+        return Ok(new { status = "resumed" });
+    }
+
     [HttpPost("csfd/actions/backfill")]
     [Authorize(Roles = "Administrator")]
     public async Task<IActionResult> Backfill(CancellationToken cancellationToken)
@@ -83,6 +107,14 @@ public class CsfdRatingController : ControllerBase
     public async Task<IActionResult> RetryNotFound(CancellationToken cancellationToken)
     {
         var count = await _ratingService.RetryNotFoundAsync(cancellationToken);
+        return Ok(new { enqueued = count });
+    }
+
+    [HttpPost("csfd/actions/retry-errors")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> RetryErrors(CancellationToken cancellationToken)
+    {
+        var count = await _ratingService.RetryErrorsAsync(cancellationToken);
         return Ok(new { enqueued = count });
     }
 

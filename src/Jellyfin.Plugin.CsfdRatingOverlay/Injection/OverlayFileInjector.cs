@@ -11,6 +11,13 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Injection;
 public class OverlayFileInjector
 {
     private const string Marker = "<!-- csfd-overlay -->";
+    private static readonly string[] FallbackWebRoots =
+    {
+        "/usr/share/jellyfin/web",
+        "/usr/lib/jellyfin/web",
+        "/config/www",
+        "/config/wwwroot"
+    };
     private readonly IApplicationPaths _appPaths;
     private readonly ILogger<OverlayFileInjector> _logger;
 
@@ -28,7 +35,7 @@ public class OverlayFileInjector
             return;
         }
 
-        var webRoot = _appPaths.WebPath;
+        var webRoot = ResolveWebRoot();
         if (string.IsNullOrWhiteSpace(webRoot))
         {
             _logger.LogWarning("Web root path not available; cannot inject overlay script");
@@ -70,11 +77,40 @@ public class OverlayFileInjector
             }
 
             File.WriteAllText(indexPath, patched, Encoding.UTF8);
-            _logger.LogInformation("Injected CSFD overlay script tag into {IndexPath}", indexPath);
+            _logger.LogInformation("Successfully injected CSFD overlay script tag into {IndexPath}", indexPath);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _logger.LogError("Injection failed: Access denied to {IndexPath}. The Jellyfin process does not have write permissions to this file. If running in Docker, you must map this file as a volume to allow modification.", indexPath);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to inject overlay script into index.html");
+            _logger.LogError(ex, "Failed to inject overlay script into index.html");
         }
+    }
+
+    private string? ResolveWebRoot()
+    {
+        // Prefer known Jellyfin web client locations.
+        foreach (var path in FallbackWebRoots)
+        {
+            if (Directory.Exists(path))
+            {
+                _logger.LogInformation("Found web root at {Path}", path);
+                return path;
+            }
+        }
+
+        // As a last resort, fall back to Jellyfin-reported path (if it exists).
+        if (!string.IsNullOrWhiteSpace(_appPaths.WebPath) && Directory.Exists(_appPaths.WebPath))
+        {
+            _logger.LogInformation("Found web root at reported path {Path}", _appPaths.WebPath);
+            return _appPaths.WebPath;
+        }
+
+        _logger.LogWarning("Could not find web root. Checked: {Paths}, Reported: {ReportedPath}", 
+            string.Join(", ", FallbackWebRoots), _appPaths.WebPath);
+
+        return null;
     }
 }

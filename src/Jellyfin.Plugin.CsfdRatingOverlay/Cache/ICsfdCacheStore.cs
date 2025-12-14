@@ -1,3 +1,5 @@
+using Jellyfin.Plugin.CsfdRatingOverlay.Models;
+
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 
 public interface ICsfdCacheStore
@@ -7,6 +9,8 @@ public interface ICsfdCacheStore
     Task<IReadOnlyDictionary<string, CsfdCacheEntry>> GetManyAsync(IEnumerable<string> itemIds, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyCollection<CsfdCacheEntry>> GetAllAsync(CancellationToken cancellationToken = default);
+
+    Task<CsfdCacheStats> GetStatsAsync(CancellationToken cancellationToken = default);
 
     Task UpsertAsync(CsfdCacheEntry entry, CancellationToken cancellationToken = default);
 

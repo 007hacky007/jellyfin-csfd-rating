@@ -86,6 +86,29 @@ public class CsfdRatingService
         });
     }
 
+    public async Task<CsfdPluginStatus> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        var stats = await _cacheStore.GetStatsAsync(cancellationToken).ConfigureAwait(false);
+        var totalItems = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            Recursive = true
+        }).Count;
+
+        return new CsfdPluginStatus
+        {
+            QueueSize = _queue.Count,
+            IsPaused = _queue.IsPaused,
+            TotalLibraryItems = totalItems,
+            CacheStats = stats
+        };
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _queue.SetPaused(paused);
+    }
+
     public async Task<int> BackfillLibraryAsync(CancellationToken cancellationToken)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
@@ -122,6 +145,20 @@ public class CsfdRatingService
         }
 
         _logger.LogInformation("Retrying {Count} not-found entries", count);
+        return count;
+    }
+
+    public async Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
+    {
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var count = 0;
+        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ErrorTransient || e.Status == CsfdCacheEntryStatus.ErrorPermanent))
+        {
+            Enqueue(entry.ItemId, true, entry.Fingerprint);
+            count++;
+        }
+
+        _logger.LogInformation("Retrying {Count} error entries", count);
         return count;
     }
 

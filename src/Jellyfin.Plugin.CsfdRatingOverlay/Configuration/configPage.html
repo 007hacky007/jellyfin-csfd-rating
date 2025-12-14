@@ -1,113 +1,226 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8" />
     <title>ČSFD Rating Overlay</title>
 </head>
 <body>
-    <div class="verticalSection">
-        <h2>ČSFD Rating Overlay</h2>
-        <form id="csfdConfigForm">
-            <div class="inputContainer">
-                <label class="checkboxLabel">
-                    <input type="checkbox" id="enabled" />
-                    <span>Enable plugin</span>
-                </label>
-            </div>
-            <div class="inputContainer">
-                <label class="checkboxLabel">
-                    <input type="checkbox" id="overlayInjectionEnabled" />
-                    <span>Enable web overlay injection</span>
-                </label>
-            </div>
-            <div class="inputContainer">
-                <label for="requestDelayMs">Request delay (ms)</label>
-                <input id="requestDelayMs" type="number" min="500" step="100" required />
-            </div>
-            <div class="inputContainer">
-                <label for="maxRetries">Max retries</label>
-                <input id="maxRetries" type="number" min="1" step="1" required />
-            </div>
-            <div class="inputContainer">
-                <label for="cooldownMinMinutes">Cooldown minimum (minutes)</label>
-                <input id="cooldownMinMinutes" type="number" min="1" step="1" required />
-            </div>
-            <div class="formButtons">
-                <button is="emby-button" type="submit" class="raised button-submit block">Save</button>
-                <button is="emby-button" type="button" id="resetButton" class="raised block">Reset to defaults</button>
-            </div>
-            <div class="formButtons" style="margin-top:16px;">
-                <button is="emby-button" type="button" id="backfillButton" class="raised block">Backfill library</button>
-                <button is="emby-button" type="button" id="retryNotFoundButton" class="raised block">Retry unmatched items</button>
-                <button is="emby-button" type="button" id="clearCacheButton" class="raised block">Reset cache</button>
-            </div>
-        </form>
-    </div>
+    <div id="CsfdRatingOverlayConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="CsfdRatingOverlayConfigForm">
+                    <div class="verticalSection">
+                        <div class="sectionTitleContainer flex align-items-center">
+                            <h2 class="sectionTitle">ČSFD Rating Overlay</h2>
+                        </div>
+                        <p>Configure ČSFD fetching, retries, cache actions, and optional web overlay injection.</p>
+                        
+                        <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkEnabled" />
+                                <span>Enable plugin</span>
+                            </label>
+                        </div>
 
-    <script type="text/javascript">
-        (function () {
-            const pluginId = "b9643a4b-5b92-4f09-94c4-45ce6bfc57e9";
-            const form = document.getElementById("csfdConfigForm");
-            const enabled = document.getElementById("enabled");
-            const overlayInjectionEnabled = document.getElementById("overlayInjectionEnabled");
-            const requestDelayMs = document.getElementById("requestDelayMs");
-            const maxRetries = document.getElementById("maxRetries");
-            const cooldownMinMinutes = document.getElementById("cooldownMinMinutes");
-            const resetButton = document.getElementById("resetButton");
-            const backfillButton = document.getElementById("backfillButton");
-            const retryNotFoundButton = document.getElementById("retryNotFoundButton");
-            const clearCacheButton = document.getElementById("clearCacheButton");
+                        <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkOverlayInjectionEnabled" />
+                                <span>Enable web overlay injection</span>
+                            </label>
+                            <div class="fieldDescription">Injects a script into the web interface to display rating badges on posters.</div>
+                        </div>
 
-            function load() {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId).then(cfg => {
-                    enabled.checked = cfg.Enabled;
-                    overlayInjectionEnabled.checked = cfg.OverlayInjectionEnabled;
-                    requestDelayMs.value = cfg.RequestDelayMs;
-                    maxRetries.value = cfg.MaxRetries;
-                    cooldownMinMinutes.value = cfg.CooldownMinMinutes;
-                    Dashboard.hideLoadingMsg();
-                });
-            }
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
+                            <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
+                            <div class="fieldDescription">Time to wait between requests to ČSFD to avoid rate limiting.</div>
+                        </div>
 
-            form.addEventListener("submit", function (e) {
-                e.preventDefault();
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId).then(cfg => {
-                    cfg.Enabled = enabled.checked;
-                    cfg.OverlayInjectionEnabled = overlayInjectionEnabled.checked;
-                    cfg.RequestDelayMs = parseInt(requestDelayMs.value, 10) || 2000;
-                    cfg.MaxRetries = parseInt(maxRetries.value, 10) || 5;
-                    cfg.CooldownMinMinutes = parseInt(cooldownMinMinutes.value, 10) || 10;
-                    ApiClient.updatePluginConfiguration(pluginId, cfg).then(() => {
-                        Dashboard.processPluginConfigurationUpdateResult();
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtMaxRetries">Max retries</label>
+                            <input is="emby-input" type="number" id="txtMaxRetries" min="1" step="1" required />
+                            <div class="fieldDescription">Maximum number of retries for transient errors.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtCooldownMinMinutes">Cooldown minimum (minutes)</label>
+                            <input is="emby-input" type="number" id="txtCooldownMinMinutes" min="1" step="1" required />
+                            <div class="fieldDescription">Minimum time to wait before retrying a failed item.</div>
+                        </div>
+
+                        <div>
+                            <button is="emby-button" type="submit" class="raised button-submit block">
+                                <span>Save</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Status</h3>
+                    <div style="background: rgba(0,0,0,0.2); padding: 1em; border-radius: 4px; margin-bottom: 1em;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Queue Size:</span>
+                            <span id="statQueueSize" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Total Library Items:</span>
+                            <span id="statLibraryTotal" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Total Cached:</span>
+                            <span id="statTotal" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Resolved:</span>
+                            <span id="statResolved" style="font-weight: bold; color: #4caf50;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Not Found:</span>
+                            <span id="statNotFound" style="font-weight: bold; color: #ff9800;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Errors:</span>
+                            <span id="statErrors" style="font-weight: bold; color: #f44336;">-</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1em;">
+                        <button is="emby-button" type="button" class="raised" id="btnRefreshStatus">
+                            <span>Refresh Status</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnPauseResume">
+                            <span>Pause Processing</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Maintenance</h3>
+                    <div style="display: flex; gap: 1em; flex-wrap: wrap;">
+                        <button is="emby-button" type="button" class="raised" id="btnBackfill">
+                            <span>Backfill Library</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRetryNotFound">
+                            <span>Retry Unmatched</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRetryErrors">
+                            <span>Retry Errors</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnResetCache">
+                            <span>Reset Cache</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var CsfdRatingOverlayConfig = {
+                pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
+
+                loadConfiguration: function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        document.querySelector('#chkEnabled').checked = config.Enabled;
+                        document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                        document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
+                        document.querySelector('#txtMaxRetries').value = config.MaxRetries;
+                        document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
+                        Dashboard.hideLoadingMsg();
                     });
-                });
+                },
+
+                saveConfiguration: function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        config.Enabled = document.querySelector('#chkEnabled').checked;
+                        config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                        config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
+                        config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
+                        config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);
+
+                        ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                },
+                
+                runAction: function (action) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/actions/' + action)
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Action completed.');
+                        CsfdRatingOverlayConfig.loadStatus();
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Action failed.');
+                    });
+                },
+
+                loadStatus: function () {
+                    ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/status')).then(function (status) {
+                        document.querySelector('#statQueueSize').textContent = status.QueueSize;
+                        document.querySelector('#statLibraryTotal').textContent = status.TotalLibraryItems;
+                        document.querySelector('#statTotal').textContent = status.CacheStats.TotalEntries;
+                        document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
+                        document.querySelector('#statNotFound').textContent = status.CacheStats.NotFound;
+                        document.querySelector('#statErrors').textContent = status.CacheStats.Errors;
+                        
+                        var btnPause = document.querySelector('#btnPauseResume');
+                        if (status.IsPaused) {
+                            btnPause.textContent = "Resume Processing";
+                            btnPause.setAttribute('data-action', 'resume');
+                        } else {
+                            btnPause.textContent = "Pause Processing";
+                            btnPause.setAttribute('data-action', 'pause');
+                        }
+                    });
+                }
+            };
+
+            document.querySelector('#CsfdRatingOverlayConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                CsfdRatingOverlayConfig.saveConfiguration();
+                return false;
             });
 
-            resetButton.addEventListener("click", function () {
-                enabled.checked = true;
-                overlayInjectionEnabled.checked = true;
-                requestDelayMs.value = 2000;
-                maxRetries.value = 5;
-                cooldownMinMinutes.value = 10;
+            document.querySelector('#btnRefreshStatus').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.loadStatus();
             });
 
-            function callAction(path) {
-                Dashboard.showLoadingMsg();
-                ApiClient.ajax({
-                    type: "POST",
-                    url: ApiClient.getUrl("Plugins/CsfdRatingOverlay/" + path),
-                    dataType: "json"
-                }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
-            }
+            document.querySelector('#btnPauseResume').addEventListener('click', function () {
+                var btn = this;
+                var action = btn.getAttribute('data-action') || 'pause';
+                CsfdRatingOverlayConfig.runAction(action);
+            });
 
-            backfillButton.addEventListener("click", function () { callAction("csfd/actions/backfill"); });
-            retryNotFoundButton.addEventListener("click", function () { callAction("csfd/actions/retry-notfound"); });
-            clearCacheButton.addEventListener("click", function () { callAction("csfd/actions/reset-cache"); });
+            document.querySelector('#btnBackfill').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('backfill');
+            });
+            
+            document.querySelector('#btnRetryNotFound').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('retry-notfound');
+            });
 
-            load();
-        })();
-    </script>
+            document.querySelector('#btnRetryErrors').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('retry-errors');
+            });
+            
+            document.querySelector('#btnResetCache').addEventListener('click', function () {
+                if (confirm('Are you sure you want to clear the entire cache? This will force re-fetching of all ratings.')) {
+                    CsfdRatingOverlayConfig.runAction('reset-cache');
+                }
+            });
+
+            document.addEventListener('pageshow', function (e) {
+                if (e.target.id === 'CsfdRatingOverlayConfigPage') {
+                    CsfdRatingOverlayConfig.loadConfiguration();
+                    CsfdRatingOverlayConfig.loadStatus();
+                }
+            });
+        </script>
+    </div>
 </body>
 </html>
