@@ -78,6 +78,22 @@ public class CsfdRatingController : ControllerBase
         return Content(content, "application/javascript");
     }
 
+    [HttpPost("csfd/actions/pause")]
+    [Authorize(Roles = "Administrator")]
+    public IActionResult Pause()
+    {
+        _ratingService.SetPaused(true);
+        return Ok(new { status = "paused" });
+    }
+
+    [HttpPost("csfd/actions/resume")]
+    [Authorize(Roles = "Administrator")]
+    public IActionResult Resume()
+    {
+        _ratingService.SetPaused(false);
+        return Ok(new { status = "resumed" });
+    }
+
     [HttpPost("csfd/actions/backfill")]
     [Authorize(Roles = "Administrator")]
     public async Task<IActionResult> Backfill(CancellationToken cancellationToken)

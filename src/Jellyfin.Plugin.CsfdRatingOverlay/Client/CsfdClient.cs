@@ -26,14 +26,19 @@ public class CsfdClient
         var url = $"https://www.csfd.cz/hledat/?q={Uri.EscapeDataString(query)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jellyfin-Csfd", "1.0"));
+        
+        _logger.LogDebug("Fetching CSFD search: {Url}", url);
         var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        
         if (IsThrottle(response.StatusCode))
         {
+            _logger.LogWarning("CSFD search throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Throttle(GetRetryAfter(response), $"Search throttled: {(int)response.StatusCode}");
         }
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogError("CSFD search failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Fail($"HTTP {(int)response.StatusCode}");
         }
 
@@ -47,14 +52,19 @@ public class CsfdClient
         var url = $"https://www.csfd.cz/film/{csfdId}/";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jellyfin-Csfd", "1.0"));
+        
+        _logger.LogDebug("Fetching CSFD rating: {Url}", url);
         var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        
         if (IsThrottle(response.StatusCode))
         {
+            _logger.LogWarning("CSFD rating throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<int>.Throttle(GetRetryAfter(response), $"Details throttled: {(int)response.StatusCode}");
         }
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogError("CSFD rating failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
             return CsfdClientResult<int>.Fail($"HTTP {(int)response.StatusCode}");
         }
 

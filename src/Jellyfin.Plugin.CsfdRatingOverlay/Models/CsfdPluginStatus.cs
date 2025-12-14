@@ -11,6 +11,7 @@ public class CsfdCacheStats
 public class CsfdPluginStatus
 {
     public int QueueSize { get; set; }
+    public bool IsPaused { get; set; }
     public int TotalLibraryItems { get; set; }
     public CsfdCacheStats CacheStats { get; set; } = new();
 }

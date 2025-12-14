@@ -19,8 +19,10 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
     private Task? _worker;
     private bool _started;
     private int _count;
+    private volatile bool _paused;
 
     public int Count => _count;
+    public bool IsPaused => _paused;
 
     public CsfdFetchQueue(ICsfdFetchProcessor processor, ILogger<CsfdFetchQueue> logger)
     {
@@ -39,6 +41,12 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
         _cts = new CancellationTokenSource();
         _worker = Task.Run(() => WorkerAsync(_cts.Token));
         _logger.LogInformation("CSFD fetch queue started");
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _paused = paused;
+        _logger.LogInformation("CSFD fetch queue paused state set to {Paused}", paused);
     }
 
     public bool Enqueue(CsfdFetchRequest request)
@@ -63,10 +71,26 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
         {
             while (reader.TryRead(out var request))
             {
+                while (_paused && !cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+                }
+
                 Interlocked.Decrement(ref _count);
                 try
                 {
                     var result = await _processor.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
+                    if (result.Kind == FetchWorkResultKind.Throttled)
+                    {
+                        var delay = result.RetryAfter ?? TimeSpan.FromSeconds(60);
+                        _logger.LogWarning("Throttled. Pausing queue for {Delay} and re-queuing {ItemId}", delay, request.ItemId);
+                        
+                        // Re-enqueue the request
+                        Enqueue(request);
+                        
+                        // Wait before processing any more items
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException)
                 {

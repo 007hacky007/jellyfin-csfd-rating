@@ -98,9 +98,15 @@ public class CsfdRatingService
         return new CsfdPluginStatus
         {
             QueueSize = _queue.Count,
+            IsPaused = _queue.IsPaused,
             TotalLibraryItems = totalItems,
             CacheStats = stats
         };
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _queue.SetPaused(paused);
     }
 
     public async Task<int> BackfillLibraryAsync(CancellationToken cancellationToken)

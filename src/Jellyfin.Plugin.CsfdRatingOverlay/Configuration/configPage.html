@@ -83,9 +83,14 @@
                             <span id="statErrors" style="font-weight: bold; color: #f44336;">-</span>
                         </div>
                     </div>
-                    <button is="emby-button" type="button" class="raised" id="btnRefreshStatus">
-                        <span>Refresh Status</span>
-                    </button>
+                    <div style="display: flex; gap: 1em;">
+                        <button is="emby-button" type="button" class="raised" id="btnRefreshStatus">
+                            <span>Refresh Status</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnPauseResume">
+                            <span>Pause Processing</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="verticalSection">
@@ -159,6 +164,15 @@
                         document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
                         document.querySelector('#statNotFound').textContent = status.CacheStats.NotFound;
                         document.querySelector('#statErrors').textContent = status.CacheStats.Errors;
+                        
+                        var btnPause = document.querySelector('#btnPauseResume');
+                        if (status.IsPaused) {
+                            btnPause.textContent = "Resume Processing";
+                            btnPause.setAttribute('data-action', 'resume');
+                        } else {
+                            btnPause.textContent = "Pause Processing";
+                            btnPause.setAttribute('data-action', 'pause');
+                        }
                     });
                 }
             };
@@ -171,6 +185,12 @@
 
             document.querySelector('#btnRefreshStatus').addEventListener('click', function () {
                 CsfdRatingOverlayConfig.loadStatus();
+            });
+
+            document.querySelector('#btnPauseResume').addEventListener('click', function () {
+                var btn = this;
+                var action = btn.getAttribute('data-action') || 'pause';
+                CsfdRatingOverlayConfig.runAction(action);
             });
 
             document.querySelector('#btnBackfill').addEventListener('click', function () {
