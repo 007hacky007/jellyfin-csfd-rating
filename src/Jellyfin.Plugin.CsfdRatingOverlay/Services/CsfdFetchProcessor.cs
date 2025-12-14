@@ -18,6 +18,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
     private readonly ICsfdCacheStore _cacheStore;
     private readonly CsfdClient _csfdClient;
     private readonly CsfdRateLimiter _rateLimiter;
+    private readonly DebugLogger _debugLogger;
     private readonly ILogger<CsfdFetchProcessor> _logger;
 
     public CsfdFetchProcessor(
@@ -25,12 +26,14 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         ICsfdCacheStore cacheStore,
         CsfdClient csfdClient,
         CsfdRateLimiter rateLimiter,
+        DebugLogger debugLogger,
         ILogger<CsfdFetchProcessor> logger)
     {
         _libraryManager = libraryManager;
         _cacheStore = cacheStore;
         _csfdClient = csfdClient;
         _rateLimiter = rateLimiter;
+        _debugLogger = debugLogger;
         _logger = logger;
     }
 
@@ -90,6 +93,19 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         var candidate = CandidateSelector.PickBest(item.Name ?? queryTitle, item.OriginalTitle, item.ProductionYear, isSeries, searchResult.Payload);
         if (candidate == null)
         {
+            _debugLogger.LogFailure(
+                $"Match:{item.Name}", 
+                "No matching candidate found", 
+                $"Search: {queryTitle}", 
+                null, 
+                new { 
+                    Query = queryTitle, 
+                    OriginalTitle = item.OriginalTitle, 
+                    Year = item.ProductionYear, 
+                    IsSeries = isSeries, 
+                    Candidates = searchResult.Payload 
+                });
+
             await MarkNotFoundAsync(updatedEntry, queryTitle, cancellationToken).ConfigureAwait(false);
             return FetchWorkResult.Success;
         }

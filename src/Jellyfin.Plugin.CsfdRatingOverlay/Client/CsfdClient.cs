@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.CsfdRatingOverlay.Models;
+using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Client;
@@ -14,6 +15,7 @@ public class CsfdClient
     private static readonly Regex PercentRegex = new(@"film-rating-average.*?>(?:\s*<[^>]*>)*\s*(?<percent>\d{1,3})%", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
     private readonly HttpClient _httpClient;
+    private readonly DebugLogger _debugLogger;
     private readonly ILogger<CsfdClient> _logger;
     
     // Real browser User-Agents to avoid bot detection
@@ -24,9 +26,10 @@ public class CsfdClient
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
     };
 
-    public CsfdClient(HttpClient httpClient, ILogger<CsfdClient> logger)
+    public CsfdClient(HttpClient httpClient, DebugLogger debugLogger, ILogger<CsfdClient> logger)
     {
         _httpClient = httpClient;
+        _debugLogger = debugLogger;
         _logger = logger;
     }
 
@@ -49,11 +52,19 @@ public class CsfdClient
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogError("CSFD search failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
+            _debugLogger.LogFailure($"Search:{query}", $"HTTP {(int)response.StatusCode}", url, null);
             return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Fail($"HTTP {(int)response.StatusCode}");
         }
 
         var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var candidates = ParseCandidates(html);
+        
+        // Log if no candidates found, might be useful
+        if (candidates.Count == 0)
+        {
+             _debugLogger.LogFailure($"Search:{query}", "No candidates found", url, html);
+        }
+
         return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Ok(candidates);
     }
 
@@ -77,6 +88,7 @@ public class CsfdClient
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogError("CSFD rating failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
+            _debugLogger.LogFailure($"Rating:{csfdId}", $"HTTP {(int)response.StatusCode}", url, null);
             return CsfdClientResult<int>.Fail($"HTTP {(int)response.StatusCode}");
         }
 
@@ -85,6 +97,7 @@ public class CsfdClient
         if (html.Contains("g-recaptcha") || html.Contains("robot") || html.Contains("Jste robot?"))
         {
              _logger.LogError("CSFD returned captcha/bot check for {Url}", url);
+             _debugLogger.LogFailure($"Rating:{csfdId}", "Captcha detected", url, html);
              return CsfdClientResult<int>.Fail("Captcha detected");
         }
 
@@ -92,6 +105,7 @@ public class CsfdClient
         if (percent is null)
         {
             _logger.LogError("Failed to parse rating percent for {Url}. HTML length: {Length}", url, html.Length);
+            _debugLogger.LogFailure($"Rating:{csfdId}", "Rating percent not found", url, html);
             
             var idx = html.IndexOf("film-rating-average");
             if (idx >= 0)

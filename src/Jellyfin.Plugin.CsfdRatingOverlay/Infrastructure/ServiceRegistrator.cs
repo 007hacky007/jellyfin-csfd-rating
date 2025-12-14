@@ -20,6 +20,7 @@ public class ServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection services, MediaBrowser.Controller.IServerApplicationHost applicationHost)
     {
         services.AddSingleton<ICsfdCacheStore, FileCsfdCacheStore>();
+        services.AddSingleton<DebugLogger>();
         services.AddSingleton(provider =>
         {
             var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
