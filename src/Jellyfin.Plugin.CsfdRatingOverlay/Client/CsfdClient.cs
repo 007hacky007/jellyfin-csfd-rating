@@ -10,8 +10,8 @@ public class CsfdClient
 {
     private static readonly Regex CandidateRegex = new(@"/(?:film|serial)/(?<id>\d+)[^""]*""\s*[^>]*>(?<title>[^<]+)<", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex YearRegex = new(@"(?<year>19|20)\\d{2}", RegexOptions.Compiled);
-    // Updated regex to target the specific rating element class used by CSFD
-    private static readonly Regex PercentRegex = new(@"class=""[^""]*film-rating-average[^""]*""[^>]*>\s*(?<percent>\d{1,3})%", RegexOptions.Compiled);
+    // Updated regex to be more robust against HTML changes and attributes
+    private static readonly Regex PercentRegex = new(@"film-rating-average.*?>(?:\s*<[^>]*>)*\s*(?<percent>\d{1,3})%", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<CsfdClient> _logger;
