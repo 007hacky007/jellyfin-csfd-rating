@@ -7,6 +7,7 @@
     <RootNamespace>Jellyfin.Plugin.CsfdRatingOverlay</RootNamespace>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Version>0.0.5</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,11 +15,12 @@
     <PackageReference Include="Jellyfin.Controller" Version="10.11.0" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+    <PackageReference Include="System.Composition.AttributedModel" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Configuration/configPage.html" />
-    <PackageReference Include="System.Composition.AttributedModel" Version="9.0.0" />
+    <EmbeddedResource Include="Web/configPage.html" />
+    <EmbeddedResource Include="Web/configPage.js" />
     <EmbeddedResource Include="Web/overlay.js" />
   </ItemGroup>
 </Project>

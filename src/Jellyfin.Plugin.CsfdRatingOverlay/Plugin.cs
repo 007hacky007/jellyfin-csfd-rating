@@ -25,7 +25,12 @@ public class CsfdRatingOverlayPlugin : BasePlugin<PluginConfiguration>, IHasWebP
         new PluginPageInfo
         {
             Name = "csfdratingoverlay",
-            EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+            EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.html"
+        },
+        new PluginPageInfo
+        {
+            Name = "csfdratingoverlayjs",
+            EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.js"
         }
     };
 }
