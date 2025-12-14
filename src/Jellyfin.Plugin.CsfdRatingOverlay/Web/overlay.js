@@ -27,7 +27,7 @@
   const placeholderText = '- ⭐️';
   const batchSize = 20;
   const pending = new Set();
-  const rendered = new WeakSet();
+  const rendered = new WeakMap();
   let flushTimer = null;
 
   const cache = new Map();
@@ -86,14 +86,29 @@
 
   const mutationObserver = new MutationObserver(records => {
     records.forEach(record => {
-      record.addedNodes.forEach(node => {
-        if (!(node instanceof HTMLElement)) return;
-        scanNode(node);
-      });
+      if (record.type === 'childList') {
+        record.addedNodes.forEach(node => {
+          if (!(node instanceof HTMLElement)) return;
+          scanNode(node);
+        });
+      } else if (record.type === 'attributes') {
+        const el = record.target;
+        if (matchesCard(el)) {
+            prepareCard(el);
+        }
+        // Also check children if the attribute change was on a wrapper
+        const found = el.querySelectorAll(cardSelector);
+        found.forEach(c => prepareCard(c));
+      }
     });
   });
 
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  mutationObserver.observe(document.body, { 
+      childList: true, 
+      subtree: true, 
+      attributes: true, 
+      attributeFilter: ['data-id', 'data-itemid'] 
+  });
   scanNode(document.body);
 
   function scanNode(root) {
@@ -118,20 +133,16 @@
         return;
     }
 
-    if (rendered.has(el)) return;
-    
     const id = getItemId(el);
     if (!id) {
         return;
     }
-    
-    rendered.add(el);
+
+    if (rendered.get(el) === id) return;
+    rendered.set(el, id);
     
     const container = ensureContainer(el);
     if (!container) return; // Should not happen if ensureContainer works right, but safety first
-
-    // Avoid double injection if container already has badge
-    if (container.querySelector('.csfd-rating-badge')) return;
 
     if (cache.has(id)) {
       applyBadge(container, cache.get(id));
@@ -249,8 +260,6 @@
       if (!id) return;
       if (map[id]) {
         applyBadge(el, map[id]);
-      } else {
-        renderPlaceholder(el);
       }
     });
   }
