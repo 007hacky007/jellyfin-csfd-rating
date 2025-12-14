@@ -135,11 +135,28 @@
     return el.matches && el.matches(cardSelector);
   }
 
+  function isValidType(el) {
+    let node = el;
+    while (node && node !== document.body) {
+        if (node.getAttribute) {
+            const type = node.getAttribute('data-type') || node.getAttribute('data-itemtype');
+            if (type) {
+                const lower = type.toLowerCase();
+                return lower === 'movie' || lower === 'series';
+            }
+        }
+        node = node.parentElement;
+    }
+    return false;
+  }
+
   function prepareCard(el) {
     // Skip if this element is a button or inside a button/text container
     if (el.tagName === 'BUTTON' || el.closest('button') || el.closest('.cardText')) {
         return;
     }
+
+    if (!isValidType(el)) return;
 
     const id = getItemId(el);
     if (!id) {
