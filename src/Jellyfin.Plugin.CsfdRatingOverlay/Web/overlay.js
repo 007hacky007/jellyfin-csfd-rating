@@ -24,6 +24,7 @@
   const sessionKey = 'csfdOverlayCache';
   // Restrict selector to only cards and image containers to avoid buttons/links
   const cardSelector = '.card, .itemImageContainer, .cardImageContainer';
+  const detailSelector = '.itemMiscInfo.itemMiscInfo-primary';
   const placeholderText = '- ⭐️';
   const batchSize = 20;
   const pending = new Set();
@@ -116,11 +117,18 @@
     if (matchesCard(root)) {
       prepareCard(root);
     }
+    if (root.matches && root.matches(detailSelector)) {
+        prepareDetail(root);
+    }
+
     const found = root.querySelectorAll(cardSelector);
     if (found.length > 0) {
         // console.debug(logPrefix, 'Found cards:', found.length);
         found.forEach(el => prepareCard(el));
     }
+
+    const foundDetails = root.querySelectorAll(detailSelector);
+    foundDetails.forEach(el => prepareDetail(el));
   }
 
   function matchesCard(el) {
@@ -182,6 +190,15 @@
   }
 
   function getItemId(el) {
+    // Check if it is the detail info container
+    if (el.matches && el.matches(detailSelector)) {
+        const hash = window.location.hash;
+        if (hash && hash.includes('/details')) {
+             const params = new URLSearchParams(hash.split('?')[1]);
+             return normalizeId(params.get('id'));
+        }
+    }
+
     let id = el.getAttribute('data-id') || el.getAttribute('data-itemid');
     if (!id) {
         const parent = el.closest('[data-id], [data-itemid]');
@@ -198,6 +215,47 @@
         return `${id.substring(0,8)}-${id.substring(8,12)}-${id.substring(12,16)}-${id.substring(16,20)}-${id.substring(20)}`;
     }
     return id;
+  }
+
+  function prepareDetail(el) {
+    const id = getItemId(el);
+    if (!id) return;
+
+    if (rendered.get(el) === id) return;
+    rendered.set(el, id);
+
+    if (cache.has(id)) {
+        injectDetailRating(el, cache.get(id));
+    } else {
+        injectDetailRating(el, null);
+        queueFetch(id);
+    }
+  }
+
+  function injectDetailRating(el, data) {
+      let span = el.querySelector('.csfd-detail-rating');
+      if (!span) {
+          span = document.createElement('span');
+          span.className = 'csfd-detail-rating';
+          span.style.marginLeft = '1em';
+          span.style.marginRight = '1em';
+          el.appendChild(span);
+      }
+
+      if (!data) {
+          span.textContent = 'CSFD: - ⭐️';
+          return;
+      }
+      
+      const rawStatus = (data.status ?? data.Status ?? '').toString().toLowerCase();
+      if (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1') {
+          span.textContent = 'CSFD: - ⭐️';
+          return;
+      }
+
+      const starsValue = typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null;
+      const text = starsValue !== null ? `CSFD: ⭐️ ${starsValue.toFixed(1)}` : 'CSFD: - ⭐️';
+      span.textContent = text;
   }
 
   function queueFetch(id) {
@@ -261,6 +319,13 @@
       if (map[id]) {
         applyBadge(el, map[id]);
       }
+    });
+
+    document.querySelectorAll(detailSelector).forEach(el => {
+        const id = getItemId(el);
+        if (id && map[id]) {
+            injectDetailRating(el, map[id]);
+        }
     });
   }
 
