@@ -81,9 +81,30 @@ public class CsfdClient
         }
 
         var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        
+        if (html.Contains("g-recaptcha") || html.Contains("robot") || html.Contains("Jste robot?"))
+        {
+             _logger.LogError("CSFD returned captcha/bot check for {Url}", url);
+             return CsfdClientResult<int>.Fail("Captcha detected");
+        }
+
         var percent = ParsePercent(html);
         if (percent is null)
         {
+            _logger.LogError("Failed to parse rating percent for {Url}. HTML length: {Length}", url, html.Length);
+            
+            var idx = html.IndexOf("film-rating-average");
+            if (idx >= 0)
+            {
+                 var start = Math.Max(0, idx - 100);
+                 var len = Math.Min(html.Length - start, 500);
+                 _logger.LogError("Context around 'film-rating-average': {Context}", html.Substring(start, len));
+            }
+            else
+            {
+                _logger.LogError("String 'film-rating-average' not found in HTML. Snippet: {Snippet}", html.Length > 500 ? html.Substring(0, 500) : html);
+            }
+
             return CsfdClientResult<int>.Fail("Rating percent not found");
         }
 
