@@ -1,185 +1,149 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="utf-8">
     <title>ČSFD Rating Overlay</title>
 </head>
 <body>
-    <div id="CsfdConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div id="CsfdRatingOverlayConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
         <div data-role="content">
             <div class="content-primary">
-                <form id="CsfdConfigForm">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h2 class="sectionTitle">ČSFD Rating Overlay</h2>
-                    </div>
+                <form id="CsfdRatingOverlayConfigForm">
                     <div class="verticalSection">
+                        <div class="sectionTitleContainer flex align-items-center">
+                            <h2 class="sectionTitle">ČSFD Rating Overlay</h2>
+                        </div>
                         <p>Configure ČSFD fetching, retries, cache actions, and optional web overlay injection.</p>
-                    </div>
+                        
+                        <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkEnabled" />
+                                <span>Enable plugin</span>
+                            </label>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="chkEnabled" />
-                            <span>Enable plugin</span>
-                        </label>
-                    </div>
+                        <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkOverlayInjectionEnabled" />
+                                <span>Enable web overlay injection</span>
+                            </label>
+                            <div class="fieldDescription">Injects a script into the web interface to display rating badges on posters.</div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="chkOverlayInjectionEnabled" />
-                            <span>Enable web overlay injection</span>
-                        </label>
-                    </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
+                            <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
+                            <div class="fieldDescription">Time to wait between requests to ČSFD to avoid rate limiting.</div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
-                        <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
-                    </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtMaxRetries">Max retries</label>
+                            <input is="emby-input" type="number" id="txtMaxRetries" min="1" step="1" required />
+                            <div class="fieldDescription">Maximum number of retries for transient errors.</div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="txtMaxRetries">Max retries</label>
-                        <input is="emby-input" type="number" id="txtMaxRetries" min="1" step="1" required />
-                    </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtCooldownMinMinutes">Cooldown minimum (minutes)</label>
+                            <input is="emby-input" type="number" id="txtCooldownMinMinutes" min="1" step="1" required />
+                            <div class="fieldDescription">Minimum time to wait before retrying a failed item.</div>
+                        </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="txtCooldownMinMinutes">Cooldown minimum (minutes)</label>
-                        <input is="emby-input" type="number" id="txtCooldownMinMinutes" min="1" step="1" required />
-                    </div>
-
-                    <div class="formButtons">
-                        <button is="emby-button" type="submit" class="raised button-submit block"><span>${Save}</span></button>
-                        <button is="emby-button" type="button" class="raised block" id="btnResetDefaults"><span>Reset to defaults</span></button>
-                    </div>
-
-                    <div class="formButtons" style="margin-top:16px;">
-                        <button is="emby-button" type="button" class="raised block" id="backfillButton"><span>Backfill library</span></button>
-                        <button is="emby-button" type="button" class="raised block" id="retryNotFoundButton"><span>Retry unmatched items</span></button>
-                        <button is="emby-button" type="button" class="raised block" id="clearCacheButton"><span>Reset cache</span></button>
+                        <div>
+                            <button is="emby-button" type="submit" class="raised button-submit block">
+                                <span>Save</span>
+                            </button>
+                        </div>
                     </div>
                 </form>
+                
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Maintenance</h3>
+                    <div style="display: flex; gap: 1em; flex-wrap: wrap;">
+                        <button is="emby-button" type="button" class="raised" id="btnBackfill">
+                            <span>Backfill Library</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRetryNotFound">
+                            <span>Retry Unmatched</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnResetCache">
+                            <span>Reset Cache</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
 
-    <script type="text/javascript">
-        (function () {
-            console.log('[CsfdConfig] Script loaded');
-            var pluginId = 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9';
+        <script type="text/javascript">
+            var CsfdRatingOverlayConfig = {
+                pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
 
-            function getPluginConfiguration() {
-                return ApiClient.getPluginConfiguration(pluginId);
-            }
-
-            function updatePluginConfiguration(config) {
-                return ApiClient.updatePluginConfiguration(pluginId, config);
-            }
-
-            function loadPage(page, config) {
-                page.querySelector('#chkEnabled').checked = config.Enabled;
-                page.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
-                page.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
-                page.querySelector('#txtMaxRetries').value = config.MaxRetries;
-                page.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
-            }
-
-            function savePage(page) {
-                Dashboard.showLoadingMsg();
-
-                getPluginConfiguration().then(function (config) {
-                    config.Enabled = page.querySelector('#chkEnabled').checked;
-                    config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
-                    config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10);
-                    config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10);
-                    config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10);
-
-                    updatePluginConfiguration(config).then(function () {
+                loadConfiguration: function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        document.querySelector('#chkEnabled').checked = config.Enabled;
+                        document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                        document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
+                        document.querySelector('#txtMaxRetries').value = config.MaxRetries;
+                        document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
                         Dashboard.hideLoadingMsg();
-                        Dashboard.alert('Settings saved.');
-                    }, function () {
-                        Dashboard.hideLoadingMsg();
-                        Dashboard.alert('Error saving settings.');
                     });
-                });
-            }
+                },
 
-            function wireAction(page, buttonId, apiPath) {
-                var btn = page.querySelector('#' + buttonId);
-                if (btn) {
-                    btn.addEventListener('click', function () {
-                        Dashboard.showLoadingMsg();
-                        ApiClient.ajax({
-                            type: 'POST',
-                            url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/' + apiPath)
-                        }).then(function () {
-                            Dashboard.hideLoadingMsg();
-                            Dashboard.alert('Action completed.');
-                        }, function () {
-                            Dashboard.hideLoadingMsg();
-                            Dashboard.alert('Action failed.');
+                saveConfiguration: function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        config.Enabled = document.querySelector('#chkEnabled').checked;
+                        config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                        config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
+                        config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
+                        config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);
+
+                        ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
                         });
                     });
+                },
+                
+                runAction: function (action) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/actions/' + action)
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Action completed.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Action failed.');
+                    });
                 }
-            }
+            };
 
-            var pageId = '#CsfdConfigPage';
-            
-            // Use jQuery event delegation if available, or standard addEventListener
-            if (window.$) {
-                $(document).on('pageshow', pageId, function () {
-                    console.log('[CsfdConfig] pageshow fired (jQuery)');
-                    var page = this;
-                    Dashboard.showLoadingMsg();
-                    getPluginConfiguration().then(function (config) {
-                        console.log('[CsfdConfig] Configuration loaded', config);
-                        loadPage(page, config);
-                        Dashboard.hideLoadingMsg();
-                    }, function () {
-                        console.error('[CsfdConfig] Failed to load configuration');
-                        Dashboard.hideLoadingMsg();
-                    });
-                });
-            } else {
-                document.querySelector(pageId).addEventListener('pageshow', function () {
-                    console.log('[CsfdConfig] pageshow fired (native)');
-                    var page = this;
-                    Dashboard.showLoadingMsg();
-                    getPluginConfiguration().then(function (config) {
-                        console.log('[CsfdConfig] Configuration loaded', config);
-                        loadPage(page, config);
-                        Dashboard.hideLoadingMsg();
-                    }, function () {
-                        console.error('[CsfdConfig] Failed to load configuration');
-                        Dashboard.hideLoadingMsg();
-                    });
-                });
-            }
-
-            document.querySelector(pageId).querySelector('form').addEventListener('submit', function (e) {
+            document.querySelector('#CsfdRatingOverlayConfigForm').addEventListener('submit', function (e) {
                 e.preventDefault();
-                savePage(document.querySelector(pageId));
+                CsfdRatingOverlayConfig.saveConfiguration();
                 return false;
             });
 
-            // Wire up buttons - wait for page to be ready
-            // We can attach these listeners once
-            var page = document.querySelector(pageId);
-            if (page) {
-                wireAction(page, 'backfillButton', 'csfd/actions/backfill');
-                wireAction(page, 'retryNotFoundButton', 'csfd/actions/retry-notfound');
-                wireAction(page, 'clearCacheButton', 'csfd/actions/reset-cache');
-                
-                var btnReset = page.querySelector('#btnResetDefaults');
-                if (btnReset) {
-                    btnReset.addEventListener('click', function() {
-                        // Defaults
-                        page.querySelector('#chkEnabled').checked = true;
-                        page.querySelector('#chkOverlayInjectionEnabled').checked = true;
-                        page.querySelector('#txtRequestDelayMs').value = 2000;
-                        page.querySelector('#txtMaxRetries').value = 5;
-                        page.querySelector('#txtCooldownMinMinutes').value = 10;
-                    });
+            document.querySelector('#btnBackfill').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('backfill');
+            });
+            
+            document.querySelector('#btnRetryNotFound').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('retry-notfound');
+            });
+            
+            document.querySelector('#btnResetCache').addEventListener('click', function () {
+                if (confirm('Are you sure you want to clear the entire cache? This will force re-fetching of all ratings.')) {
+                    CsfdRatingOverlayConfig.runAction('reset-cache');
                 }
-            }
-        })();
-    </script>
+            });
+
+            document.addEventListener('pageshow', function (e) {
+                if (e.target.id === 'CsfdRatingOverlayConfigPage') {
+                    CsfdRatingOverlayConfig.loadConfiguration();
+                }
+            });
+        </script>
+    </div>
 </body>
 </html>
