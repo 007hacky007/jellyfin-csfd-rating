@@ -7,7 +7,7 @@
     <RootNamespace>Jellyfin.Plugin.CsfdRatingOverlay</RootNamespace>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>0.0.9</Version>
+    <Version>0.0.10</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,8 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Web/csfdratingoverlay.html" />
-    <EmbeddedResource Include="Web/csfdratingoverlay.js" />
+    <EmbeddedResource Include="Web/configurationpage.html" />
     <EmbeddedResource Include="Web/overlay.js" />
   </ItemGroup>
 </Project>
