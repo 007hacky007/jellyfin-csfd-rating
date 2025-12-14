@@ -255,7 +255,13 @@
         return;
     }
 
-    if (rendered.get(el) === id) return;
+    // If we think we rendered it, check if it's actually still there
+    if (rendered.get(el) === id) {
+        if (el.querySelector('.csfd-detail-rating')) {
+            return;
+        }
+        console.debug(logPrefix, 'prepareDetail: Re-injecting missing rating for', id);
+    }
     rendered.set(el, id);
 
     console.debug(logPrefix, 'prepareDetail: Processing', id);
@@ -271,14 +277,25 @@
   function injectDetailRating(el, data) {
       let container = el.querySelector('.csfd-detail-rating');
       if (!container) {
+          console.debug(logPrefix, 'injectDetailRating: Creating new container');
           container = document.createElement('div');
           container.className = 'csfd-detail-rating mediaInfoItem';
           
           const starContainer = el.querySelector('.starRatingContainer');
           if (starContainer) {
+              console.debug(logPrefix, 'injectDetailRating: Inserting after starContainer');
               starContainer.after(container);
           } else {
+              console.debug(logPrefix, 'injectDetailRating: Appending to parent');
               el.appendChild(container);
+          }
+      } else {
+          console.debug(logPrefix, 'injectDetailRating: Updating existing container');
+          // Ensure it's in the right place (e.g. if starRatingContainer appeared later)
+          const starContainer = el.querySelector('.starRatingContainer');
+          if (starContainer && container.previousElementSibling !== starContainer) {
+               console.debug(logPrefix, 'injectDetailRating: Moving container to correct position');
+               starContainer.after(container);
           }
       }
 
