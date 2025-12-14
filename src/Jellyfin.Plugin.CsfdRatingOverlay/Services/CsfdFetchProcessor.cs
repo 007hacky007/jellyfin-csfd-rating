@@ -71,14 +71,21 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         updatedEntry.Fingerprint = fingerprint;
 
         var queryTitle = !string.IsNullOrWhiteSpace(item.OriginalTitle) ? item.OriginalTitle! : item.Name ?? string.Empty;
+        
+        var searchQuery = queryTitle;
+        if (item.ProductionYear.HasValue)
+        {
+            searchQuery = $"{queryTitle} {item.ProductionYear.Value}";
+        }
+
         CsfdClientResult<IReadOnlyList<CsfdCandidate>> searchResult;
         await using (await _rateLimiter.WaitAsync(cancellationToken).ConfigureAwait(false))
         {
-            searchResult = await _csfdClient.SearchAsync(queryTitle, cancellationToken).ConfigureAwait(false);
+            searchResult = await _csfdClient.SearchAsync(searchQuery, cancellationToken).ConfigureAwait(false);
         }
         if (searchResult.Throttled)
         {
-            _logger.LogWarning("CSFD search throttled for {Item}", queryTitle);
+            _logger.LogWarning("CSFD search throttled for {Item}", searchQuery);
             _rateLimiter.RegisterThrottleSignal(searchResult.RetryAfter);
             return FetchWorkResult.Throttled(searchResult.RetryAfter, searchResult.Error);
         }
@@ -96,10 +103,10 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
             _debugLogger.LogFailure(
                 $"Match:{item.Name}", 
                 "No matching candidate found", 
-                $"Search: {queryTitle}", 
+                $"Search: {searchQuery}", 
                 null, 
                 new { 
-                    Query = queryTitle, 
+                    Query = searchQuery, 
                     OriginalTitle = item.OriginalTitle, 
                     Year = item.ProductionYear, 
                     IsSeries = isSeries, 
