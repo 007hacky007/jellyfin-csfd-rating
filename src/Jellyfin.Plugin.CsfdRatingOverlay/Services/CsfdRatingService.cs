@@ -175,30 +175,48 @@ public class CsfdRatingService
     public async Task<IReadOnlyList<UnmatchedItem>> GetUnmatchedItemsAsync(CancellationToken cancellationToken)
     {
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var cacheMap = entries.ToDictionary(e => e.ItemId, StringComparer.OrdinalIgnoreCase);
+
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            Recursive = true
+        });
+
         var result = new List<UnmatchedItem>();
 
-        foreach (var entry in entries)
+        foreach (var item in items)
         {
-            if (entry.Status == CsfdCacheEntryStatus.Resolved)
+            var itemId = item.Id.ToString();
+            
+            if (cacheMap.TryGetValue(itemId, out var entry))
             {
-                continue;
-            }
-
-            if (Guid.TryParse(entry.ItemId, out var guid))
-            {
-                var item = _libraryManager.GetItemById(guid);
-                if (item != null)
+                if (entry.Status == CsfdCacheEntryStatus.Resolved)
                 {
-                    result.Add(new UnmatchedItem
-                    {
-                        ItemId = entry.ItemId,
-                        Title = item.Name,
-                        OriginalTitle = item.OriginalTitle,
-                        Year = item.ProductionYear,
-                        Status = entry.Status.ToString(),
-                        LastError = entry.LastError
-                    });
+                    continue;
                 }
+
+                result.Add(new UnmatchedItem
+                {
+                    ItemId = itemId,
+                    Title = item.Name,
+                    OriginalTitle = item.OriginalTitle,
+                    Year = item.ProductionYear,
+                    Status = entry.Status.ToString(),
+                    LastError = entry.LastError
+                });
+            }
+            else
+            {
+                result.Add(new UnmatchedItem
+                {
+                    ItemId = itemId,
+                    Title = item.Name,
+                    OriginalTitle = item.OriginalTitle,
+                    Year = item.ProductionYear,
+                    Status = "NotProcessed",
+                    LastError = null
+                });
             }
         }
         
