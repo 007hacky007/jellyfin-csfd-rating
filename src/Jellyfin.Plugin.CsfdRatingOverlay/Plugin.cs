@@ -6,15 +6,15 @@ using MediaBrowser.Model.Serialization;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay;
 
-public class CsfdRatingOverlayPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    public CsfdRatingOverlayPlugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
     }
 
-    public static CsfdRatingOverlayPlugin Instance { get; private set; } = null!;
+    public static Plugin Instance { get; private set; } = null!;
 
     public override string Name => "ČSFD Rating Overlay";
 

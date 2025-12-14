@@ -22,7 +22,7 @@ public class ServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ICsfdCacheStore, FileCsfdCacheStore>();
         services.AddSingleton(provider =>
         {
-            var cfg = CsfdRatingOverlayPlugin.Instance?.Configuration ?? new PluginConfiguration();
+            var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             var logger = provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsfdRateLimiter>>();
             return new CsfdRateLimiter(TimeSpan.FromMilliseconds(cfg.RequestDelayMs), TimeSpan.FromMinutes(cfg.CooldownMinMinutes), logger);
         });

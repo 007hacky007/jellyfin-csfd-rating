@@ -31,7 +31,7 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var cfg = CsfdRatingOverlayPlugin.Instance?.Configuration ?? new PluginConfiguration();
+        var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         _injector.EnsureInjected(cfg);
         _queue.Start();
         _logger.LogInformation("ČSFD overlay services started");

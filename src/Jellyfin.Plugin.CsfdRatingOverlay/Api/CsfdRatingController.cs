@@ -51,7 +51,7 @@ public class CsfdRatingController : ControllerBase
     [AllowAnonymous]
     public IActionResult GetOverlayScript()
     {
-        var cfg = CsfdRatingOverlayPlugin.Instance?.Configuration;
+        var cfg = Plugin.Instance?.Configuration;
         if (cfg != null && !cfg.OverlayInjectionEnabled)
         {
             return StatusCode(StatusCodes.Status403Forbidden, "Overlay injection disabled");

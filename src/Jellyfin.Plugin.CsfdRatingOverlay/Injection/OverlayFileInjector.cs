@@ -87,45 +87,19 @@ public class OverlayFileInjector
 
     private string? ResolveWebRoot()
     {
-        if (!string.IsNullOrWhiteSpace(_appPaths.WebPath))
-        {
-            if (Directory.Exists(_appPaths.WebPath))
-            {
-                return _appPaths.WebPath;
-            }
-
-            // Some installs report a non-existent web path (often under /var/lib/jellyfin/wwwroot)
-            // while the real web client is elsewhere. If we can locate the real web dir, attempt
-            // to create a symlink so both Jellyfin and the injector have a stable path.
-            foreach (var fallback in FallbackWebRoots)
-            {
-                if (!Directory.Exists(fallback))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(_appPaths.WebPath) ?? "/");
-                    Directory.CreateSymbolicLink(_appPaths.WebPath, fallback);
-                    _logger.LogInformation("Created web root symlink {WebPath} -> {Fallback}", _appPaths.WebPath, fallback);
-                    return _appPaths.WebPath;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to create web root symlink {WebPath} -> {Fallback}", _appPaths.WebPath, fallback);
-                    break;
-                }
-            }
-        }
-
+        // Prefer known Jellyfin web client locations.
         foreach (var path in FallbackWebRoots)
         {
             if (Directory.Exists(path))
             {
-                _logger.LogInformation("Using fallback web root path {WebRoot}", path);
                 return path;
             }
+        }
+
+        // As a last resort, fall back to Jellyfin-reported path (if it exists).
+        if (!string.IsNullOrWhiteSpace(_appPaths.WebPath) && Directory.Exists(_appPaths.WebPath))
+        {
+            return _appPaths.WebPath;
         }
 
         return null;
