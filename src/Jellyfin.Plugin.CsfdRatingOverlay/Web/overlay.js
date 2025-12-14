@@ -142,16 +142,16 @@
   }
 
   function ensureContainer(el) {
-    // Try to find the card overlay container first
+    // Try to find the card scalable wrapper first (permanent visibility)
     const card = el.closest('.card');
     if (card) {
-        const overlay = card.querySelector('.cardOverlayContainer');
-        if (overlay) {
-            overlay.classList.add('csfd-rating-container');
-            return overlay;
+        const scalable = card.querySelector('.cardScalable');
+        if (scalable) {
+            scalable.classList.add('csfd-rating-container');
+            return scalable;
         }
-        
-        // Fallback to image container if overlay not found
+
+        // Fallback to image container
         const imgContainer = card.querySelector('.cardImageContainer, .itemImageContainer');
         if (imgContainer) {
             imgContainer.classList.add('csfd-rating-container');
@@ -161,8 +161,7 @@
     
     // If we are not in a card (unlikely with current selectors), or fallback failed
     // Just use el if it's a container type
-    if (el.classList.contains('cardOverlayContainer') || 
-        el.classList.contains('cardImageContainer') || 
+    if (el.classList.contains('cardImageContainer') || 
         el.classList.contains('itemImageContainer')) {
         el.classList.add('csfd-rating-container');
         return el;
