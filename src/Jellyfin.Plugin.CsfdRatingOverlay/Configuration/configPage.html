@@ -61,86 +61,78 @@
     </div>
 
     <script type="text/javascript">
-        const pluginId = 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9';
-        const defaults = {
-            Enabled: true,
-            OverlayInjectionEnabled: true,
-            RequestDelayMs: 2000,
-            MaxRetries: 5,
-            CooldownMinMinutes: 10
+        const CsfdConfig = {
+            pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
+            defaults: {
+                Enabled: true,
+                OverlayInjectionEnabled: true,
+                RequestDelayMs: 2000,
+                MaxRetries: 5,
+                CooldownMinMinutes: 10
+            },
+            setFields(config) {
+                document.querySelector('#chkEnabled').checked = config.Enabled ?? this.defaults.Enabled;
+                document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled ?? this.defaults.OverlayInjectionEnabled;
+                document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs ?? this.defaults.RequestDelayMs;
+                document.querySelector('#txtMaxRetries').value = config.MaxRetries ?? this.defaults.MaxRetries;
+                document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes ?? this.defaults.CooldownMinMinutes;
+            },
+            applyForm(config) {
+                config.Enabled = document.querySelector('#chkEnabled').checked;
+                config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10) || this.defaults.RequestDelayMs;
+                config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10) || this.defaults.MaxRetries;
+                config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10) || this.defaults.CooldownMinMinutes;
+                return config;
+            }
         };
 
-        function setFields(page, config) {
-            page.querySelector('#chkEnabled').checked = config.Enabled ?? defaults.Enabled;
-            page.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled ?? defaults.OverlayInjectionEnabled;
-            page.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs ?? defaults.RequestDelayMs;
-            page.querySelector('#txtMaxRetries').value = config.MaxRetries ?? defaults.MaxRetries;
-            page.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes ?? defaults.CooldownMinMinutes;
-        }
+        document.querySelector('#CsfdConfigPage')
+            .addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(CsfdConfig.pluginId).then(config => {
+                    CsfdConfig.setFields(config);
+                    Dashboard.hideLoadingMsg();
+                }, () => Dashboard.hideLoadingMsg());
+            });
 
-        function wireAction(page, selector, path) {
-            const button = page.querySelector(selector);
+        document.querySelector('#CsfdConfigForm')
+            .addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(CsfdConfig.pluginId).then(config => {
+                    return ApiClient.updatePluginConfiguration(CsfdConfig.pluginId, CsfdConfig.applyForm(config));
+                }).then(result => {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                }).finally(() => Dashboard.hideLoadingMsg());
+
+                return false;
+            });
+
+        document.querySelector('#btnResetDefaults')
+            .addEventListener('click', function () {
+                CsfdConfig.setFields(CsfdConfig.defaults);
+            });
+
+        function wireAction(selector, path) {
+            const button = document.querySelector(selector);
             if (!button) {
                 return;
             }
 
-            button.addEventListener('click', () => {
+            button.addEventListener('click', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.ajax({
                     type: 'POST',
                     url: ApiClient.getUrl(`Plugins/CsfdRatingOverlay/${path}`),
                     dataType: 'json'
-                }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
+                }).finally(() => Dashboard.hideLoadingMsg());
             });
         }
 
-        function bindConfigPage() {
-            const page = document.querySelector('#CsfdConfigPage');
-            const form = document.querySelector('#CsfdConfigForm');
-            const resetButton = document.querySelector('#btnResetDefaults');
-            if (!page || !form) {
-                console.warn('ČSFD config page missing expected markup; skipping binding');
-                return;
-            }
-
-            page.addEventListener('viewshow', function () {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId)
-                    .then(config => {
-                        setFields(page, config);
-                        Dashboard.hideLoadingMsg();
-                    }, () => Dashboard.hideLoadingMsg());
-            });
-
-            form.addEventListener('submit', function (e) {
-                e.preventDefault();
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(pluginId).then(config => {
-                    config.Enabled = page.querySelector('#chkEnabled').checked;
-                    config.OverlayInjectionEnabled = page.querySelector('#chkOverlayInjectionEnabled').checked;
-                    config.RequestDelayMs = parseInt(page.querySelector('#txtRequestDelayMs').value, 10) || defaults.RequestDelayMs;
-                    config.MaxRetries = parseInt(page.querySelector('#txtMaxRetries').value, 10) || defaults.MaxRetries;
-                    config.CooldownMinMinutes = parseInt(page.querySelector('#txtCooldownMinMinutes').value, 10) || defaults.CooldownMinMinutes;
-
-                    return ApiClient.updatePluginConfiguration(pluginId, config)
-                        .then(Dashboard.processPluginConfigurationUpdateResult, Dashboard.hideLoadingMsg);
-                }).then(() => Dashboard.hideLoadingMsg(), () => Dashboard.hideLoadingMsg());
-
-                return false;
-            });
-
-            if (resetButton) {
-                resetButton.addEventListener('click', function () {
-                    setFields(page, defaults);
-                });
-            }
-
-            wireAction(page, '#backfillButton', 'csfd/actions/backfill');
-            wireAction(page, '#retryNotFoundButton', 'csfd/actions/retry-notfound');
-            wireAction(page, '#clearCacheButton', 'csfd/actions/reset-cache');
-        }
-
-        bindConfigPage();
+        wireAction('#backfillButton', 'csfd/actions/backfill');
+        wireAction('#retryNotFoundButton', 'csfd/actions/retry-notfound');
+        wireAction('#clearCacheButton', 'csfd/actions/reset-cache');
     </script>
 </body>
 </html>
