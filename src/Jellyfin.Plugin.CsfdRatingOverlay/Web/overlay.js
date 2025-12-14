@@ -9,6 +9,7 @@
 
   const sessionKey = 'csfdOverlayCache';
   const cardSelector = '[data-id], [data-itemid]';
+  const placeholderText = '- ⭐️';
   const batchSize = 20;
   const pending = new Set();
   const rendered = new WeakSet();
@@ -44,6 +45,11 @@
       line-height: 1.2;
       pointer-events: none;
       box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+    .csfd-rating-badge--placeholder {
+      background: rgba(255, 255, 255, 0.2);
+      color: #f5f5f5;
+      font-style: italic;
     }
   `;
   document.head.appendChild(style);
@@ -95,6 +101,8 @@
     ensureContainer(el);
     if (cache.has(id)) {
       applyBadge(el, cache.get(id));
+    } else {
+      renderPlaceholder(el);
     }
     intersectionObserver.observe(el);
   }
@@ -168,14 +176,39 @@
       if (!id) return;
       if (map[id]) {
         applyBadge(el, map[id]);
+      } else {
+        renderPlaceholder(el);
       }
     });
   }
 
   function applyBadge(el, data) {
-    if (!data || data.status && data.status !== 'Resolved' && data.status !== 1) return;
-    const text = data.displayText || data.DisplayText || (data.stars ? `${data.stars.toFixed(1)} ⭐️` : null);
-    if (!text) return;
+    if (!data) {
+      renderPlaceholder(el);
+      return;
+    }
+
+    const rawStatus = (data.status ?? data.Status ?? '').toString().toLowerCase();
+    if (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1') {
+      renderPlaceholder(el);
+      return;
+    }
+
+    const starsValue = typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null;
+    const text = data.displayText || data.DisplayText || (starsValue !== null ? `${starsValue.toFixed(1)} ⭐️` : null);
+    if (!text) {
+      renderPlaceholder(el);
+      return;
+    }
+
+    setBadge(el, text, false);
+  }
+
+  function renderPlaceholder(el) {
+    setBadge(el, placeholderText, true);
+  }
+
+  function setBadge(el, text, isPlaceholder) {
     ensureContainer(el);
     let badge = el.querySelector('.csfd-rating-badge');
     if (!badge) {
@@ -184,5 +217,6 @@
       el.appendChild(badge);
     }
     badge.textContent = text;
+    badge.classList.toggle('csfd-rating-badge--placeholder', Boolean(isPlaceholder));
   }
 })();
