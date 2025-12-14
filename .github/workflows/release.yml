@@ -71,7 +71,9 @@ jobs:
         shell: bash
         run: |
           SHA=$(sha256sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
+          MD5=$(md5sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
           echo "ZIP_SHA256=$SHA" >> $GITHUB_ENV
+          echo "ZIP_MD5=$MD5" >> $GITHUB_ENV
 
       - name: Generate manifest
         shell: bash
@@ -98,7 +100,7 @@ jobs:
                   "targetAbi": "${TARGET_ABI}",
                   "framework": "${FRAMEWORK}",
                   "sourceUrl": "${ASSET_URL}",
-                  "checksum": "${ZIP_SHA256}",
+                  "checksum": "${ZIP_MD5}",
                   "timestamp": "${TIMESTAMP}",
                   "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
                 }
