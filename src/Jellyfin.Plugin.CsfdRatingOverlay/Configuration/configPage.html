@@ -250,9 +250,21 @@
                         type: 'POST',
                         url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/search'),
                         data: JSON.stringify({ Query: query }),
-                        contentType: 'application/json'
+                        contentType: 'application/json',
+                        dataType: 'json'
                     }).then(function (results) {
                         Dashboard.hideLoadingMsg();
+                        
+                        if (typeof results === 'string') {
+                            try { results = JSON.parse(results); } catch(e) {}
+                        }
+                        
+                        if (!Array.isArray(results)) {
+                             console.error('Unexpected result format', results);
+                             Dashboard.alert('Search returned unexpected format.');
+                             return;
+                        }
+
                         var html = '<div class="paperList">';
                         if (results.length === 0) {
                             html += '<div class="listItem">No results found.</div>';
