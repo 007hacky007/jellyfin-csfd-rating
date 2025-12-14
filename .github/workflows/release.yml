@@ -1,0 +1,116 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 1.0.0) when running manually"
+        required: true
+        type: string
+
+env:
+  PROJECT_PATH: src/Jellyfin.Plugin.CsfdRatingOverlay/Jellyfin.Plugin.CsfdRatingOverlay.csproj
+  PLUGIN_ID: Jellyfin.Plugin.CsfdRatingOverlay
+  PLUGIN_GUID: b9643a4b-5b92-4f09-94c4-45ce6bfc57e9
+  TARGET_ABI: "10.9.0"
+  FRAMEWORK: "net8.0"
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Determine version and tag
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAG="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              echo "Manual runs require the version input."
+              exit 1
+            fi
+            TAG="v${VERSION}"
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          echo "ZIP_NAME=${PLUGIN_ID}.zip" >> $GITHUB_ENV
+          echo "ASSET_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PLUGIN_ID}.zip" >> $GITHUB_ENV
+          echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+
+      - name: Restore
+        run: dotnet restore $PROJECT_PATH
+
+      - name: Publish
+        run: dotnet publish $PROJECT_PATH -c Release -o ./artifacts/publish /p:Version=$VERSION
+
+      - name: Create zip
+        shell: bash
+        run: |
+          cd artifacts/publish
+          zip -r ../"$ZIP_NAME" .
+
+      - name: Compute checksum
+        shell: bash
+        run: |
+          SHA=$(sha256sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
+          echo "ZIP_SHA256=$SHA" >> $GITHUB_ENV
+
+      - name: Generate manifest
+        shell: bash
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p artifacts
+          cat > artifacts/manifest.json <<EOF
+{
+  "name": "ČSFD Rating Overlay",
+  "guid": "${PLUGIN_GUID}",
+  "overview": "ČSFD ratings with optional poster overlay for Jellyfin.",
+  "description": "Fetches and caches ČSFD ratings with throttling, admin actions, and an optional overlay badge injected into Jellyfin Web.",
+  "owner": "${OWNER}",
+  "category": "Metadata",
+  "manifestVersion": 1,
+  "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
+  "status": "stable",
+  "versions": [
+    {
+      "version": "${VERSION}",
+      "targetAbi": "${TARGET_ABI}",
+      "framework": "${FRAMEWORK}",
+      "sourceUrl": "${ASSET_URL}",
+      "checksum": "${ZIP_SHA256}",
+      "timestamp": "${TIMESTAMP}",
+      "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+    }
+  ]
+}
+EOF
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            artifacts/${{ env.ZIP_NAME }}
+            artifacts/manifest.json
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,188 @@
+/* Jellyfin ČSFD Rating Overlay - injected client bundle */
+(() => {
+  const logPrefix = '[CsfdOverlay]';
+  const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
+  if (!apiBase || !window.ApiClient) {
+    console.warn(logPrefix, 'ApiClient not found; aborting');
+    return;
+  }
+
+  const sessionKey = 'csfdOverlayCache';
+  const cardSelector = '[data-id], [data-itemid]';
+  const batchSize = 20;
+  const pending = new Set();
+  const rendered = new WeakSet();
+  let flushTimer = null;
+
+  const cache = new Map();
+  try {
+    const raw = sessionStorage.getItem(sessionKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const [k, v] of Object.entries(parsed)) {
+        cache.set(k, v);
+      }
+    }
+  } catch (err) {
+    console.warn(logPrefix, 'Failed to restore cache', err);
+  }
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .csfd-rating-container { position: relative; }
+    .csfd-rating-badge {
+      position: absolute;
+      bottom: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20, 20, 20, 0.75);
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      line-height: 1.2;
+      pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+  `;
+  document.head.appendChild(style);
+
+  const intersectionObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      const el = entry.target;
+      if (!entry.isIntersecting) return;
+      intersectionObserver.unobserve(el);
+      const id = getItemId(el);
+      if (!id) return;
+      if (cache.has(id)) {
+        applyBadge(el, cache.get(id));
+      } else {
+        queueFetch(id);
+      }
+    });
+  }, { rootMargin: '200px' });
+
+  const mutationObserver = new MutationObserver(records => {
+    records.forEach(record => {
+      record.addedNodes.forEach(node => {
+        if (!(node instanceof HTMLElement)) return;
+        scanNode(node);
+      });
+    });
+  });
+
+  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  scanNode(document.body);
+
+  function scanNode(root) {
+    if (!(root instanceof HTMLElement)) return;
+    if (matchesCard(root)) {
+      prepareCard(root);
+    }
+    root.querySelectorAll(cardSelector).forEach(el => prepareCard(el));
+  }
+
+  function matchesCard(el) {
+    return el.matches && el.matches(cardSelector);
+  }
+
+  function prepareCard(el) {
+    if (rendered.has(el)) return;
+    rendered.add(el);
+    const id = getItemId(el);
+    if (!id) return;
+    ensureContainer(el);
+    if (cache.has(id)) {
+      applyBadge(el, cache.get(id));
+    }
+    intersectionObserver.observe(el);
+  }
+
+  function ensureContainer(el) {
+    const parent = el.closest('.card, .itemImageContainer, .listItem, .overflowEllipsis') || el;
+    parent.classList.add('csfd-rating-container');
+  }
+
+  function getItemId(el) {
+    return el.getAttribute('data-id') || el.getAttribute('data-itemid');
+  }
+
+  function queueFetch(id) {
+    pending.add(id);
+    if (pending.size >= batchSize) {
+      flushPending();
+    } else if (!flushTimer) {
+      flushTimer = setTimeout(flushPending, 400);
+    }
+  }
+
+  function flushPending() {
+    if (pending.size === 0) return;
+    const ids = Array.from(pending);
+    pending.clear();
+    clearTimeout(flushTimer);
+    flushTimer = null;
+    fetchBatch(ids);
+  }
+
+  async function fetchBatch(ids) {
+    const token = window.ApiClient.accessToken ? window.ApiClient.accessToken() : window.ApiClient._accessToken;
+    const url = apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/csfd/items/batch';
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['X-Emby-Token'] = token;
+    }
+
+    try {
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ itemIds: ids }) });
+      if (!res.ok) {
+        console.warn(logPrefix, 'Batch fetch failed', res.status);
+        return;
+      }
+      const data = await res.json();
+      for (const id of ids) {
+        if (data[id]) {
+          cache.set(id, data[id]);
+        }
+      }
+      persistCache();
+      updateBadges(data);
+    } catch (err) {
+      console.warn(logPrefix, 'Batch fetch error', err);
+    }
+  }
+
+  function persistCache() {
+    const obj = Object.fromEntries(cache.entries());
+    try {
+      sessionStorage.setItem(sessionKey, JSON.stringify(obj));
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  function updateBadges(map) {
+    document.querySelectorAll(cardSelector).forEach(el => {
+      const id = getItemId(el);
+      if (!id) return;
+      if (map[id]) {
+        applyBadge(el, map[id]);
+      }
+    });
+  }
+
+  function applyBadge(el, data) {
+    if (!data || data.status && data.status !== 'Resolved' && data.status !== 1) return;
+    const text = data.displayText || data.DisplayText || (data.stars ? `${data.stars.toFixed(1)} ⭐️` : null);
+    if (!text) return;
+    ensureContainer(el);
+    let badge = el.querySelector('.csfd-rating-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'csfd-rating-badge';
+      el.appendChild(badge);
+    }
+    badge.textContent = text;
+  }
+})();
