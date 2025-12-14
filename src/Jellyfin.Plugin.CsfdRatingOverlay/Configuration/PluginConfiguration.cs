@@ -4,13 +4,22 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
 
 public class PluginConfiguration : BasePluginConfiguration
 {
-    public bool Enabled { get; set; } = true;
+    public PluginConfiguration()
+    {
+        Enabled = true;
+        OverlayInjectionEnabled = true;
+        RequestDelayMs = 2000;
+        MaxRetries = 5;
+        CooldownMinMinutes = 10;
+    }
 
-    public bool OverlayInjectionEnabled { get; set; } = true;
+    public bool Enabled { get; set; }
 
-    public int RequestDelayMs { get; set; } = 2000;
+    public bool OverlayInjectionEnabled { get; set; }
 
-    public int MaxRetries { get; set; } = 5;
+    public int RequestDelayMs { get; set; }
 
-    public int CooldownMinMinutes { get; set; } = 10;
+    public int MaxRetries { get; set; }
+
+    public int CooldownMinMinutes { get; set; }
 }
