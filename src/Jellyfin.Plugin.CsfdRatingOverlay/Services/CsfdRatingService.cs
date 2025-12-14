@@ -86,6 +86,23 @@ public class CsfdRatingService
         });
     }
 
+    public async Task<CsfdPluginStatus> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        var stats = await _cacheStore.GetStatsAsync(cancellationToken).ConfigureAwait(false);
+        var totalItems = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            Recursive = true
+        }).Count;
+
+        return new CsfdPluginStatus
+        {
+            QueueSize = _queue.Count,
+            TotalLibraryItems = totalItems,
+            CacheStats = stats
+        };
+    }
+
     public async Task<int> BackfillLibraryAsync(CancellationToken cancellationToken)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery

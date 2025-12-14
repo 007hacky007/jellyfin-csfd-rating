@@ -56,6 +56,39 @@
                 </form>
                 
                 <div class="verticalSection">
+                    <h3 class="sectionTitle">Status</h3>
+                    <div style="background: rgba(0,0,0,0.2); padding: 1em; border-radius: 4px; margin-bottom: 1em;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Queue Size:</span>
+                            <span id="statQueueSize" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Total Library Items:</span>
+                            <span id="statLibraryTotal" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Total Cached:</span>
+                            <span id="statTotal" style="font-weight: bold;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Resolved:</span>
+                            <span id="statResolved" style="font-weight: bold; color: #4caf50;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Not Found:</span>
+                            <span id="statNotFound" style="font-weight: bold; color: #ff9800;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Errors:</span>
+                            <span id="statErrors" style="font-weight: bold; color: #f44336;">-</span>
+                        </div>
+                    </div>
+                    <button is="emby-button" type="button" class="raised" id="btnRefreshStatus">
+                        <span>Refresh Status</span>
+                    </button>
+                </div>
+
+                <div class="verticalSection">
                     <h3 class="sectionTitle">Maintenance</h3>
                     <div style="display: flex; gap: 1em; flex-wrap: wrap;">
                         <button is="emby-button" type="button" class="raised" id="btnBackfill">
@@ -111,9 +144,21 @@
                     }).then(function () {
                         Dashboard.hideLoadingMsg();
                         Dashboard.alert('Action completed.');
+                        CsfdRatingOverlayConfig.loadStatus();
                     }, function () {
                         Dashboard.hideLoadingMsg();
                         Dashboard.alert('Action failed.');
+                    });
+                },
+
+                loadStatus: function () {
+                    ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/status')).then(function (status) {
+                        document.querySelector('#statQueueSize').textContent = status.QueueSize;
+                        document.querySelector('#statLibraryTotal').textContent = status.TotalLibraryItems;
+                        document.querySelector('#statTotal').textContent = status.CacheStats.TotalEntries;
+                        document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
+                        document.querySelector('#statNotFound').textContent = status.CacheStats.NotFound;
+                        document.querySelector('#statErrors').textContent = status.CacheStats.Errors;
                     });
                 }
             };
@@ -122,6 +167,10 @@
                 e.preventDefault();
                 CsfdRatingOverlayConfig.saveConfiguration();
                 return false;
+            });
+
+            document.querySelector('#btnRefreshStatus').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.loadStatus();
             });
 
             document.querySelector('#btnBackfill').addEventListener('click', function () {
@@ -141,6 +190,7 @@
             document.addEventListener('pageshow', function (e) {
                 if (e.target.id === 'CsfdRatingOverlayConfigPage') {
                     CsfdRatingOverlayConfig.loadConfiguration();
+                    CsfdRatingOverlayConfig.loadStatus();
                 }
             });
         </script>

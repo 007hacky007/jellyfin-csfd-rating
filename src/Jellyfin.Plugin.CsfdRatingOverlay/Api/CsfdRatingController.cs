@@ -47,6 +47,14 @@ public class CsfdRatingController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("csfd/status")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
+    {
+        var status = await _ratingService.GetStatusAsync(cancellationToken);
+        return Ok(status);
+    }
+
     [HttpGet("web/overlay.js")]
     [AllowAnonymous]
     public IActionResult GetOverlayScript()

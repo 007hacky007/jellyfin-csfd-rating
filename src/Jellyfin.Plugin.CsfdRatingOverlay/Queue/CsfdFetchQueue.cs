@@ -18,6 +18,9 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Task? _worker;
     private bool _started;
+    private int _count;
+
+    public int Count => _count;
 
     public CsfdFetchQueue(ICsfdFetchProcessor processor, ILogger<CsfdFetchQueue> logger)
     {
@@ -45,7 +48,12 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
             Start();
         }
 
-        return _channel.Writer.TryWrite(request);
+        if (_channel.Writer.TryWrite(request))
+        {
+            Interlocked.Increment(ref _count);
+            return true;
+        }
+        return false;
     }
 
     private async Task WorkerAsync(CancellationToken cancellationToken)
@@ -55,6 +63,7 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
         {
             while (reader.TryRead(out var request))
             {
+                Interlocked.Decrement(ref _count);
                 try
                 {
                     var result = await _processor.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
