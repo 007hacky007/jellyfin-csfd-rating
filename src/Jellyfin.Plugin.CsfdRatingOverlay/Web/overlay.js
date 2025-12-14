@@ -49,8 +49,7 @@
     .csfd-rating-badge {
       position: absolute;
       bottom: 6px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 6px;
       background: rgba(20, 20, 20, 0.75);
       color: #fff;
       padding: 2px 6px;
@@ -115,7 +114,7 @@
 
   function prepareCard(el) {
     // Skip if this element is a button or inside a button/text container
-    if (el.tagName === 'BUTTON' || el.closest('button') || el.closest('.cardText') || el.closest('.cardOverlayContainer')) {
+    if (el.tagName === 'BUTTON' || el.closest('button') || el.closest('.cardText')) {
         return;
     }
 
@@ -143,21 +142,33 @@
   }
 
   function ensureContainer(el) {
-    // If el is the image container, use it. If it's the card, find the image container.
-    // We want the badge on the image.
-    let target = el;
-    if (el.classList.contains('card')) {
-        const imgContainer = el.querySelector('.cardImageContainer, .itemImageContainer');
-        if (imgContainer) target = imgContainer;
+    // Try to find the card overlay container first
+    const card = el.closest('.card');
+    if (card) {
+        const overlay = card.querySelector('.cardOverlayContainer');
+        if (overlay) {
+            overlay.classList.add('csfd-rating-container');
+            return overlay;
+        }
+        
+        // Fallback to image container if overlay not found
+        const imgContainer = card.querySelector('.cardImageContainer, .itemImageContainer');
+        if (imgContainer) {
+            imgContainer.classList.add('csfd-rating-container');
+            return imgContainer;
+        }
     }
     
-    // Double check we are not targeting a button or something wrong
-    if (target.tagName === 'BUTTON' || target.closest('.cardOverlayContainer')) {
-        return null;
+    // If we are not in a card (unlikely with current selectors), or fallback failed
+    // Just use el if it's a container type
+    if (el.classList.contains('cardOverlayContainer') || 
+        el.classList.contains('cardImageContainer') || 
+        el.classList.contains('itemImageContainer')) {
+        el.classList.add('csfd-rating-container');
+        return el;
     }
-
-    target.classList.add('csfd-rating-container');
-    return target;
+    
+    return null;
   }
 
   function getItemId(el) {
