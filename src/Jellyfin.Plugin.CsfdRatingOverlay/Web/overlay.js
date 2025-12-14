@@ -102,6 +102,10 @@
         found.forEach(c => prepareCard(c));
       }
     });
+    
+    // Always re-scan details on mutation because URL might have changed without full reload
+    const details = document.querySelectorAll(detailSelector);
+    details.forEach(el => prepareDetail(el));
   });
 
   mutationObserver.observe(document.body, { 
@@ -128,6 +132,9 @@
     }
 
     const foundDetails = root.querySelectorAll(detailSelector);
+    if (foundDetails.length > 0) {
+        console.debug(logPrefix, 'scanNode: Found detail elements', foundDetails.length);
+    }
     foundDetails.forEach(el => prepareDetail(el));
   }
 
@@ -212,8 +219,15 @@
         const hash = window.location.hash;
         if (hash && hash.includes('/details')) {
              const params = new URLSearchParams(hash.split('?')[1]);
-             return normalizeId(params.get('id'));
+             const id = normalizeId(params.get('id'));
+             if (id) return id;
         }
+        // Fallback: try to find ID in the URL even if hash parsing is tricky
+        const match = window.location.href.match(/[?&]id=([a-fA-F0-9]+)/);
+        if (match) {
+            return normalizeId(match[1]);
+        }
+        console.debug(logPrefix, 'getItemId: Failed to extract ID from URL for detail view', window.location.href);
     }
 
     let id = el.getAttribute('data-id') || el.getAttribute('data-itemid');
@@ -236,10 +250,15 @@
 
   function prepareDetail(el) {
     const id = getItemId(el);
-    if (!id) return;
+    if (!id) {
+        console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
+        return;
+    }
 
     if (rendered.get(el) === id) return;
     rendered.set(el, id);
+
+    console.debug(logPrefix, 'prepareDetail: Processing', id);
 
     if (cache.has(id)) {
         injectDetailRating(el, cache.get(id));
