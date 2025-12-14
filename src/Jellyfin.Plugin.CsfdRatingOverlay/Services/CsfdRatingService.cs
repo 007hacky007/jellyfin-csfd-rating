@@ -148,6 +148,20 @@ public class CsfdRatingService
         return count;
     }
 
+    public async Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
+    {
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var count = 0;
+        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ErrorTransient || e.Status == CsfdCacheEntryStatus.ErrorPermanent))
+        {
+            Enqueue(entry.ItemId, true, entry.Fingerprint);
+            count++;
+        }
+
+        _logger.LogInformation("Retrying {Count} error entries", count);
+        return count;
+    }
+
     public Task ClearCacheAsync(CancellationToken cancellationToken)
     {
         return _cacheStore.ClearAllAsync(cancellationToken);

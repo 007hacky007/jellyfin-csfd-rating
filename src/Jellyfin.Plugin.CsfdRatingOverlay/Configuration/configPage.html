@@ -102,6 +102,9 @@
                         <button is="emby-button" type="button" class="raised" id="btnRetryNotFound">
                             <span>Retry Unmatched</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRetryErrors">
+                            <span>Retry Errors</span>
+                        </button>
                         <button is="emby-button" type="button" class="raised" id="btnResetCache">
                             <span>Reset Cache</span>
                         </button>
@@ -199,6 +202,10 @@
             
             document.querySelector('#btnRetryNotFound').addEventListener('click', function () {
                 CsfdRatingOverlayConfig.runAction('retry-notfound');
+            });
+
+            document.querySelector('#btnRetryErrors').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('retry-errors');
             });
             
             document.querySelector('#btnResetCache').addEventListener('click', function () {

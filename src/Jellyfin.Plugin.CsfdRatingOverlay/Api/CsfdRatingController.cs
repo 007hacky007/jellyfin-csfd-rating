@@ -110,6 +110,14 @@ public class CsfdRatingController : ControllerBase
         return Ok(new { enqueued = count });
     }
 
+    [HttpPost("csfd/actions/retry-errors")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> RetryErrors(CancellationToken cancellationToken)
+    {
+        var count = await _ratingService.RetryErrorsAsync(cancellationToken);
+        return Ok(new { enqueued = count });
+    }
+
     [HttpPost("csfd/actions/reset-cache")]
     [Authorize(Roles = "Administrator")]
     public async Task<IActionResult> ResetCache(CancellationToken cancellationToken)
