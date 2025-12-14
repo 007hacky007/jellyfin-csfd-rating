@@ -81,28 +81,30 @@ jobs:
         run: |
           mkdir -p artifacts
           cat > artifacts/manifest.json <<EOF
-          {
-            "name": "ČSFD Rating Overlay",
-            "guid": "${PLUGIN_GUID}",
-            "overview": "ČSFD ratings with optional poster overlay for Jellyfin.",
-            "description": "Fetches and caches ČSFD ratings with throttling, admin actions, and an optional overlay badge injected into Jellyfin Web.",
-            "owner": "${OWNER}",
-            "category": "Metadata",
-            "manifestVersion": 1,
-            "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
-            "status": "stable",
-            "versions": [
-              {
-                "version": "${VERSION}",
-                "targetAbi": "${TARGET_ABI}",
-                "framework": "${FRAMEWORK}",
-                "sourceUrl": "${ASSET_URL}",
-                "checksum": "${ZIP_SHA256}",
-                "timestamp": "${TIMESTAMP}",
-                "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
-              }
-            ]
-          }
+          [
+            {
+              "name": "ČSFD Rating Overlay",
+              "guid": "${PLUGIN_GUID}",
+              "overview": "ČSFD ratings with optional poster overlay for Jellyfin.",
+              "description": "Fetches and caches ČSFD ratings with throttling, admin actions, and an optional overlay badge injected into Jellyfin Web.",
+              "owner": "${OWNER}",
+              "category": "Metadata",
+              "manifestVersion": 1,
+              "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
+              "status": "stable",
+              "versions": [
+                {
+                  "version": "${VERSION}",
+                  "targetAbi": "${TARGET_ABI}",
+                  "framework": "${FRAMEWORK}",
+                  "sourceUrl": "${ASSET_URL}",
+                  "checksum": "${ZIP_SHA256}",
+                  "timestamp": "${TIMESTAMP}",
+                  "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                }
+              ]
+            }
+          ]
           EOF
 
       - name: Upload release assets
