@@ -98,7 +98,7 @@ public class CsfdClient
 
         var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         
-        if (html.Contains("g-recaptcha") || html.Contains("robot") || html.Contains("Jste robot?"))
+        if (html.Contains("g-recaptcha") || html.Contains("Jste robot?"))
         {
              _logger.LogError("CSFD returned captcha/bot check for {Url}", url);
              _debugLogger.LogFailure($"Rating:{csfdId}", "Captcha detected", url, html);
