@@ -31,7 +31,6 @@ public class ServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ICsfdFetchProcessor, CsfdFetchProcessor>();
         services.AddSingleton<CsfdFetchQueue>();
         services.AddSingleton<CsfdRatingService>();
-        services.AddSingleton<OverlayFileInjector>();
         services.AddHostedService<CsfdHostedService>();
     }
 }

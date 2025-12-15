@@ -4,7 +4,9 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 
@@ -15,18 +17,15 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
 {
     private readonly CsfdFetchQueue _queue;
     private readonly CsfdRatingService _ratingService;
-    private readonly OverlayFileInjector _injector;
     private readonly ILogger<CsfdHostedService> _logger;
 
     public CsfdHostedService(
         CsfdFetchQueue queue,
         CsfdRatingService ratingService,
-        OverlayFileInjector injector,
         ILogger<CsfdHostedService> logger)
     {
         _queue = queue;
         _ratingService = ratingService;
-        _injector = injector;
         _logger = logger;
     }
 
@@ -45,10 +44,61 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
             string.IsNullOrWhiteSpace(assembly.Location) ? "(empty)" : assembly.Location);
 
         var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        _injector.EnsureInjected(cfg);
+        
+        // Register transformation instead of manual injection
+        RegisterTransformation();
+        
         _queue.Start();
         _logger.LogInformation("ČSFD overlay services started");
         return Task.CompletedTask;
+    }
+
+    private void RegisterTransformation()
+    {
+        try
+        {
+            // Define the transformation metadata
+            JObject data = new JObject
+            {
+                { "id", "b9643a4b-5b92-4f09-94c4-45ce6bfc57e9" }, // Using Plugin ID as transformation ID
+                { "fileNamePattern", "index.html" },
+                { "callbackAssembly", typeof(Transformations).Assembly.FullName },
+                { "callbackClass", typeof(Transformations).FullName },
+                { "callbackMethod", nameof(Transformations.IndexTransformation)}
+            };
+
+            // Find the FileTransformation assembly in the loaded assemblies
+            Assembly? fileTransformationAssembly = AssemblyLoadContext.All
+                .SelectMany(x => x.Assemblies)
+                .FirstOrDefault(x => x.FullName?.Contains("Jellyfin.Plugin.FileTransformation") ?? false);
+
+            if (fileTransformationAssembly != null)
+            {
+                // Get the PluginInterface type
+                Type? pluginInterfaceType = fileTransformationAssembly
+                    .GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+
+                if (pluginInterfaceType != null)
+                {
+                    // Invoke the RegisterTransformation method
+                    pluginInterfaceType.GetMethod("RegisterTransformation")
+                        ?.Invoke(null, new object?[] { data });
+                    _logger.LogInformation("Registered index.html transformation with File Transformation plugin");
+                }
+                else
+                {
+                    _logger.LogWarning("File Transformation plugin found but PluginInterface type missing");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("File Transformation plugin not found. Overlay script will not be injected.");
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Failed to register transformation");
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
