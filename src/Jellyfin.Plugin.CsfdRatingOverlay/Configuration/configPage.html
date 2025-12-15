@@ -108,6 +108,9 @@
                         <button is="emby-button" type="button" class="raised" id="btnResetCache">
                             <span>Reset Cache</span>
                         </button>
+                        <button is="emby-button" type="button" class="raised" id="btnInvalidateClientCache">
+                            <span>Invalidate Client Cache</span>
+                        </button>
                     </div>
                 </div>
 
@@ -338,6 +341,17 @@
             document.querySelector('#btnResetCache').addEventListener('click', function () {
                 if (confirm('Are you sure you want to clear the entire cache? This will force re-fetching of all ratings.')) {
                     CsfdRatingOverlayConfig.runAction('reset-cache');
+                }
+            });
+
+            document.querySelector('#btnInvalidateClientCache').addEventListener('click', function () {
+                if (confirm('This will force all clients to clear their local cache and re-fetch ratings. Continue?')) {
+                    var config = CsfdRatingOverlayConfig.pluginConfig;
+                    config.ClientCacheVersion = Date.now();
+                    ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        Dashboard.alert('Client cache invalidated.');
+                    });
                 }
             });
 

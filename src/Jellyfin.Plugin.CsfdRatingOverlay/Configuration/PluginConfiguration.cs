@@ -22,4 +22,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxRetries { get; set; }
 
     public int CooldownMinMinutes { get; set; }
+
+    public long ClientCacheVersion { get; set; }
 }

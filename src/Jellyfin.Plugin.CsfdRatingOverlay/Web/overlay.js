@@ -21,7 +21,8 @@
   function init() {
   const apiBase = (window.ApiClient && window.ApiClient._serverAddress) || '';
 
-  const sessionKey = 'csfdOverlayCache';
+  const sessionKey = 'csfdOverlayCache_v2';
+  const configKey = 'csfdOverlayConfig';
   // Restrict selector to only cards and image containers to avoid buttons/links
   const cardSelector = '.card, .itemImageContainer, .cardImageContainer';
   const detailSelector = '.itemMiscInfo.itemMiscInfo-primary';
@@ -31,17 +32,60 @@
   const rendered = new WeakMap();
   let flushTimer = null;
 
+  // Expose cache clearing utility
+  window.clearCsfdCache = () => {
+      try {
+          sessionStorage.removeItem(sessionKey);
+          localStorage.removeItem(configKey);
+          console.log(logPrefix, 'Cache cleared');
+          location.reload();
+      } catch (e) {
+          console.error(e);
+      }
+  };
+
+  // Check for client cache invalidation
+  checkClientConfig();
+
   const cache = new Map();
   try {
     const raw = sessionStorage.getItem(sessionKey);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const now = Date.now();
       for (const [k, v] of Object.entries(parsed)) {
+        // Check for expiration (Task 2)
+        if (v._expires && v._expires < now) {
+            continue;
+        }
         cache.set(k, v);
       }
     }
   } catch (err) {
     console.warn(logPrefix, 'Failed to restore cache', err);
+  }
+
+  async function checkClientConfig() {
+      try {
+          const token = window.ApiClient.accessToken ? window.ApiClient.accessToken() : window.ApiClient._accessToken;
+          const url = apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/csfd/client-config';
+          const headers = { 'Content-Type': 'application/json' };
+          if (token) headers['X-Emby-Token'] = token;
+
+          const res = await fetch(url, { headers });
+          if (res.ok) {
+              const data = await res.json();
+              const lastVersion = localStorage.getItem(configKey);
+              if (lastVersion && data.clientCacheVersion && lastVersion != data.clientCacheVersion) {
+                  console.log(logPrefix, 'Client cache version changed, invalidating cache.');
+                  sessionStorage.removeItem(sessionKey);
+                  cache.clear();
+              }
+              localStorage.setItem(configKey, data.clientCacheVersion || 0);
+          }
+      } catch (e) {
+          console.warn(logPrefix, 'Failed to check client config', e);
+      }
   }
 
   const style = document.createElement('style');
@@ -348,9 +392,19 @@
         return;
       }
       const data = await res.json();
+      const now = Date.now();
       for (const id of ids) {
         if (data[id]) {
-          cache.set(id, data[id]);
+          const entry = data[id];
+          // Task 2: Cache items without proper rating only for 10 minutes
+          const rawStatus = (entry.status ?? entry.Status ?? '').toString().toLowerCase();
+          const starsValue = typeof entry.stars === 'number' ? entry.stars : typeof entry.Stars === 'number' ? entry.Stars : null;
+          
+          if (rawStatus !== 'resolved' && rawStatus !== '1' || starsValue === null || starsValue === 0) {
+              entry._expires = now + (10 * 60 * 1000); // 10 minutes
+          }
+          
+          cache.set(id, entry);
         }
       }
       persistCache();

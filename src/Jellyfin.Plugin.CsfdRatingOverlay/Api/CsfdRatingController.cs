@@ -23,6 +23,13 @@ public class CsfdRatingController : ControllerBase
         _cacheStore = cacheStore;
     }
 
+    [HttpGet("csfd/client-config")]
+    public IActionResult GetClientConfig()
+    {
+        var config = Plugin.Instance.Configuration;
+        return Ok(new { clientCacheVersion = config.ClientCacheVersion });
+    }
+
     [HttpGet("csfd/items/{itemId}")]
     public async Task<IActionResult> GetItem(string itemId, CancellationToken cancellationToken)
     {
