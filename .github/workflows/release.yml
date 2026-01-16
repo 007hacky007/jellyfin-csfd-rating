@@ -61,7 +61,12 @@ jobs:
             IS_PRERELEASE="${{ inputs.prerelease }}"
           fi
 
+          # Jellyfin manifest requires strict numeric versions (System.Version).
+          # Strip any pre-release suffix (e.g., 0.0.1-test -> 0.0.1) for the manifest.
+          MANIFEST_VERSION=$(echo "$VERSION" | sed 's/-.*//')
+
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MANIFEST_VERSION=$MANIFEST_VERSION" >> $GITHUB_ENV
           echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
           echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_ENV
           echo "BASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" >> $GITHUB_ENV
@@ -113,22 +118,22 @@ jobs:
               "status": "stable",
               "versions": [
                 {
-                  "version": "${VERSION}",
+                  "version": "${MANIFEST_VERSION}",
                   "targetAbi": "10.11.0",
                   "framework": "net9.0",
                   "sourceUrl": "${BASE_URL}/${PLUGIN_ID}_net9.zip",
                   "checksum": "${ZIP_MD5_9}",
                   "timestamp": "${TIMESTAMP}",
-                  "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                  "changelog": "Build: ${RELEASE_TAG}. See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
                 },
                 {
-                  "version": "${VERSION}",
+                  "version": "${MANIFEST_VERSION}",
                   "targetAbi": "10.10.0",
                   "framework": "net8.0",
                   "sourceUrl": "${BASE_URL}/${PLUGIN_ID}_net8.zip",
                   "checksum": "${ZIP_MD5_8}",
                   "timestamp": "${TIMESTAMP}",
-                  "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                  "changelog": "Build: ${RELEASE_TAG}. See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
                 }
               ]
             }
