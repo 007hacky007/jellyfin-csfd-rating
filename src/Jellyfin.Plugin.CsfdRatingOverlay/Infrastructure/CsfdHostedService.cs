@@ -4,7 +4,6 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 
@@ -57,15 +56,13 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
     {
         try
         {
-            // Define the transformation metadata
-            JObject data = new JObject
-            {
-                { "id", "b9643a4b-5b92-4f09-94c4-45ce6bfc57e9" }, // Using Plugin ID as transformation ID
-                { "fileNamePattern", "index.html" },
-                { "callbackAssembly", typeof(Transformations).Assembly.FullName },
-                { "callbackClass", typeof(Transformations).FullName },
-                { "callbackMethod", nameof(Transformations.IndexTransformation)}
-            };
+                        var transformationJson = $@"{{
+    \"id\": \"b9643a4b-5b92-4f09-94c4-45ce6bfc57e9\",
+    \"fileNamePattern\": \"index.html\",
+    \"callbackAssembly\": \"{typeof(Transformations).Assembly.FullName}\",
+    \"callbackClass\": \"{typeof(Transformations).FullName}\",
+    \"callbackMethod\": \"{nameof(Transformations.IndexTransformation)}\"
+}}";
 
             // Find the FileTransformation assembly in the loaded assemblies
             Assembly? fileTransformationAssembly = AssemblyLoadContext.All
@@ -80,10 +77,21 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
 
                 if (pluginInterfaceType != null)
                 {
-                    // Invoke the RegisterTransformation method
-                    pluginInterfaceType.GetMethod("RegisterTransformation")
-                        ?.Invoke(null, new object?[] { data });
-                    _logger.LogInformation("Registered index.html transformation with File Transformation plugin");
+                    var registerMethod = pluginInterfaceType.GetMethod("RegisterTransformation");
+                    var paramType = registerMethod?.GetParameters().FirstOrDefault()?.ParameterType;
+                    var parseMethod = paramType?.GetMethod("Parse", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
+
+                    var data = parseMethod?.Invoke(null, new object?[] { transformationJson });
+
+                    if (registerMethod != null && data != null)
+                    {
+                        registerMethod.Invoke(null, new object?[] { data });
+                        _logger.LogInformation("Registered index.html transformation with File Transformation plugin");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("File Transformation plugin found but could not construct transformation payload");
+                    }
                 }
                 else
                 {
