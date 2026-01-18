@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Text.Json;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 
@@ -56,13 +57,15 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
     {
         try
         {
-                        var transformationJson = $@"{{
-    \"id\": \"b9643a4b-5b92-4f09-94c4-45ce6bfc57e9\",
-    \"fileNamePattern\": \"index.html\",
-    \"callbackAssembly\": \"{typeof(Transformations).Assembly.FullName}\",
-    \"callbackClass\": \"{typeof(Transformations).FullName}\",
-    \"callbackMethod\": \"{nameof(Transformations.IndexTransformation)}\"
-}}";
+            var payload = new
+            {
+                id = "b9643a4b-5b92-4f09-94c4-45ce6bfc57e9",
+                fileNamePattern = "index.html",
+                callbackAssembly = typeof(Transformations).Assembly.FullName,
+                callbackClass = typeof(Transformations).FullName,
+                callbackMethod = nameof(Transformations.IndexTransformation)
+            };
+            var transformationJson = JsonSerializer.Serialize(payload);
 
             // Find the FileTransformation assembly in the loaded assemblies
             Assembly? fileTransformationAssembly = AssemblyLoadContext.All
