@@ -78,6 +78,8 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
             searchQuery = $"{queryTitle} {item.ProductionYear.Value}";
         }
 
+        updatedEntry.QueryUsed = searchQuery;
+
         CsfdClientResult<IReadOnlyList<CsfdCandidate>> searchResult;
         await using (await _rateLimiter.WaitAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -113,7 +115,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
                     Candidates = searchResult.Payload 
                 });
 
-            await MarkNotFoundAsync(updatedEntry, queryTitle, cancellationToken).ConfigureAwait(false);
+            await MarkNotFoundAsync(updatedEntry, searchQuery, cancellationToken).ConfigureAwait(false);
             return FetchWorkResult.Success;
         }
 
