@@ -172,6 +172,51 @@ public class CsfdRatingService
         return _cacheStore.ClearAllAsync(cancellationToken);
     }
 
+    public async Task<CacheEntryDetails?> FindCacheEntryAsync(string term, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return null;
+        }
+
+        var normalizedTerm = term.Trim();
+        CsfdCacheEntry? entry = null;
+
+        if (Guid.TryParse(normalizedTerm, out var guid))
+        {
+            entry = await _cacheStore.GetAsync(guid.ToString(), cancellationToken).ConfigureAwait(false);
+        }
+
+        if (entry == null)
+        {
+            var normalizedNoDashes = normalizedTerm.Replace("-", string.Empty, StringComparison.Ordinal);
+            var allEntries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+            entry = allEntries.FirstOrDefault(e =>
+            {
+                var entryIdNormalized = e.ItemId.Replace("-", string.Empty, StringComparison.Ordinal);
+                if (string.Equals(entryIdNormalized, normalizedNoDashes, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                return !string.IsNullOrWhiteSpace(e.CsfdId) && string.Equals(e.CsfdId, normalizedTerm, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        if (entry == null)
+        {
+            return null;
+        }
+
+        var (title, year) = TryGetLibraryInfo(entry.ItemId);
+        return new CacheEntryDetails
+        {
+            Entry = entry,
+            LibraryTitle = title,
+            LibraryYear = year
+        };
+    }
+
     public async Task<IReadOnlyList<UnmatchedItem>> GetUnmatchedItemsAsync(CancellationToken cancellationToken)
     {
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
@@ -226,6 +271,71 @@ public class CsfdRatingService
     public Task<CsfdClientResult<IReadOnlyList<CsfdCandidate>>> SearchCsfdAsync(string query, CancellationToken cancellationToken)
     {
         return _csfdClient.SearchAsync(query, cancellationToken);
+    }
+
+    public async Task<CsfdCacheEntry> OverrideCacheEntryAsync(string itemIdOrTerm, string csfdId, string? queryUsed, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(itemIdOrTerm))
+        {
+            throw new ArgumentException("ItemId or search term is required", nameof(itemIdOrTerm));
+        }
+
+        if (string.IsNullOrWhiteSpace(csfdId))
+        {
+            throw new ArgumentException("CsfdId is required", nameof(csfdId));
+        }
+
+        var entryDetails = await FindCacheEntryAsync(itemIdOrTerm, cancellationToken).ConfigureAwait(false);
+        var targetItemId = entryDetails?.Entry.ItemId;
+
+        if (targetItemId == null && Guid.TryParse(itemIdOrTerm, out var parsedGuid))
+        {
+            targetItemId = parsedGuid.ToString();
+        }
+
+        if (targetItemId == null)
+        {
+            throw new InvalidOperationException("Item not found in cache and term is not a valid itemId");
+        }
+
+        var ratingResult = await _csfdClient.GetRatingPercentAsync(csfdId, cancellationToken).ConfigureAwait(false);
+        if (!ratingResult.Success)
+        {
+            throw new Exception(ratingResult.Error ?? "Failed to fetch rating");
+        }
+
+        var percent = ratingResult.Payload;
+        var stars = percent / 10.0;
+        var display = stars.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️";
+
+        BaseItem? libraryItem = null;
+        if (Guid.TryParse(targetItemId, out var libraryGuid))
+        {
+            libraryItem = _libraryManager.GetItemById(libraryGuid);
+        }
+
+        var cacheEntry = entryDetails?.Entry ?? new CsfdCacheEntry
+        {
+            ItemId = targetItemId,
+            CreatedUtc = DateTimeOffset.UtcNow
+        };
+
+        cacheEntry.Status = CsfdCacheEntryStatus.Resolved;
+        cacheEntry.CsfdId = csfdId;
+        cacheEntry.Percent = percent;
+        cacheEntry.Stars = stars;
+        cacheEntry.DisplayText = display;
+        cacheEntry.MatchedTitle = libraryItem?.Name ?? cacheEntry.MatchedTitle;
+        cacheEntry.MatchedYear = libraryItem?.ProductionYear ?? cacheEntry.MatchedYear;
+        cacheEntry.Fingerprint = libraryItem != null ? MetadataFingerprint.Compute(libraryItem) : cacheEntry.Fingerprint;
+        cacheEntry.AttemptedUtc = DateTimeOffset.UtcNow;
+        cacheEntry.AttemptCount = entryDetails?.Entry.AttemptCount ?? 0;
+        cacheEntry.LastError = null;
+        cacheEntry.RetryAfterUtc = null;
+        cacheEntry.QueryUsed = queryUsed ?? cacheEntry.QueryUsed;
+
+        await _cacheStore.UpsertAsync(cacheEntry, cancellationToken).ConfigureAwait(false);
+        return cacheEntry;
     }
 
     public async Task ManualMatchAsync(string itemId, string csfdId, CancellationToken cancellationToken)
@@ -302,4 +412,15 @@ public class CsfdRatingService
         DisplayText = entry.DisplayText,
         CsfdId = entry.CsfdId
     };
+
+    private (string? Title, int? Year) TryGetLibraryInfo(string itemId)
+    {
+        if (!Guid.TryParse(itemId, out var guid))
+        {
+            return (null, null);
+        }
+
+        var item = _libraryManager.GetItemById(guid);
+        return item == null ? (null, null) : (item.Name, item.ProductionYear);
+    }
 }

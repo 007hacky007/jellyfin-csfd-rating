@@ -70,6 +70,24 @@ public class CsfdRatingController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("csfd/cache/find")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> FindCache([FromQuery] string term, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return BadRequest("term required");
+        }
+
+        var entry = await _ratingService.FindCacheEntryAsync(term, cancellationToken);
+        if (entry == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(entry);
+    }
+
     [HttpPost("csfd/search")]
     [Authorize(Roles = "Administrator")]
     public async Task<IActionResult> Search([FromBody] SearchRequest request, CancellationToken cancellationToken)
@@ -101,6 +119,27 @@ public class CsfdRatingController : ControllerBase
         {
             await _ratingService.ManualMatchAsync(request.ItemId, request.CsfdId, cancellationToken);
             return Ok();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("csfd/cache/override")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> OverrideCache([FromBody] CacheOverrideRequest request, CancellationToken cancellationToken)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.ItemIdOrTerm) || string.IsNullOrWhiteSpace(request.CsfdId))
+        {
+            return BadRequest("ItemIdOrTerm and CsfdId required");
+        }
+
+        try
+        {
+            var entry = await _ratingService.OverrideCacheEntryAsync(request.ItemIdOrTerm, request.CsfdId, request.QueryUsed, cancellationToken);
+            var details = await _ratingService.FindCacheEntryAsync(entry.ItemId, cancellationToken);
+            return Ok(details ?? new CacheEntryDetails { Entry = entry });
         }
         catch (Exception ex)
         {

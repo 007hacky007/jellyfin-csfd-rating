@@ -136,6 +136,37 @@
                         <div id="matchSearchResults" style="margin-top: 1em;"></div>
                     </div>
                 </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Cache Lookup &amp; Override</h3>
+                    <p>Find cache entries by ItemId (with or without dashes) or ČSFD ID, review their details, and override them with a custom ČSFD selection.</p>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="cacheSearchTerm" placeholder="ItemId or ČSFD ID" />
+                    </div>
+                    <button is="emby-button" type="button" class="raised" id="btnCacheSearch">
+                        <span>Find in cache</span>
+                    </button>
+                    <div id="cacheSearchResult" style="margin-top: 1em;"></div>
+
+                    <div id="cacheCsfdControls" style="display: none; background: rgba(0,0,0,0.2); padding: 1em; border-radius: 4px; margin-top: 1em;">
+                        <h4 style="margin-top: 0;">Override with custom ČSFD match</h4>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="cacheCsfdQuery" placeholder="Custom ČSFD search query" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="cacheCsfdIdDirect" placeholder="Or enter ČSFD ID directly" />
+                        </div>
+                        <div style="display: flex; gap: 1em; flex-wrap: wrap; margin-bottom: 0.5em;">
+                            <button is="emby-button" type="button" class="raised" id="btnCacheSearchCsfd">
+                                <span>Search ČSFD</span>
+                            </button>
+                            <button is="emby-button" type="button" class="raised" id="btnCacheUseCsfdId">
+                                <span>Use ČSFD ID</span>
+                            </button>
+                        </div>
+                        <div id="cacheCsfdResults" style="margin-top: 0.5em;"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -143,6 +174,8 @@
             var CsfdRatingOverlayConfig = {
                 pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
                 currentMatchItemId: null,
+                currentCacheItemId: null,
+                currentCacheDetails: null,
 
                 loadConfiguration: function () {
                     Dashboard.showLoadingMsg();
@@ -307,6 +340,169 @@
                         Dashboard.hideLoadingMsg();
                         Dashboard.alert('Match failed: ' + err);
                     });
+                },
+
+                searchCache: function() {
+                    var term = document.querySelector('#cacheSearchTerm').value.trim();
+                    if (!term) {
+                        Dashboard.alert('Enter an ItemId or ČSFD ID.');
+                        return;
+                    }
+
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/cache/find') + '?term=' + encodeURIComponent(term),
+                        dataType: 'json'
+                    }).then(function (details) {
+                        Dashboard.hideLoadingMsg();
+                        if (typeof details === 'string') {
+                            try { details = JSON.parse(details); } catch (e) {}
+                        }
+                        CsfdRatingOverlayConfig.renderCacheEntry(details);
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        CsfdRatingOverlayConfig.currentCacheItemId = null;
+                        CsfdRatingOverlayConfig.currentCacheDetails = null;
+                        document.querySelector('#cacheSearchResult').innerHTML = '<div class="listItem">No cache entry found.</div>';
+                        document.querySelector('#cacheCsfdControls').style.display = 'none';
+                    });
+                },
+
+                renderCacheEntry: function(details) {
+                    if (!details || (!details.Entry && !details.ItemId && !details.ItemIdOrTerm)) {
+                        return;
+                    }
+
+                    var entry = details.Entry || details;
+                    this.currentCacheItemId = entry.ItemId;
+                    this.currentCacheDetails = details;
+
+                    var meta = [];
+                    if (details.LibraryTitle) {
+                        meta.push('<div class="listItemBodyText"><strong>Library Title:</strong> ' + this.escapeHtml(details.LibraryTitle) + (details.LibraryYear ? ' (' + details.LibraryYear + ')' : '') + '</div>');
+                    }
+                    meta.push('<div class="listItemBodyText"><strong>Status:</strong> ' + this.escapeHtml(entry.Status || '') + '</div>');
+                    if (entry.DisplayText) {
+                        meta.push('<div class="listItemBodyText"><strong>Display:</strong> ' + this.escapeHtml(entry.DisplayText) + '</div>');
+                    }
+                    if (entry.CsfdId) {
+                        meta.push('<div class="listItemBodyText"><strong>ČSFD ID:</strong> ' + this.escapeHtml(entry.CsfdId) + '</div>');
+                    }
+                    if (entry.QueryUsed) {
+                        meta.push('<div class="listItemBodyText"><strong>Query Used:</strong> ' + this.escapeHtml(entry.QueryUsed) + '</div>');
+                    }
+
+                    var json = this.escapeHtml(JSON.stringify(entry, null, 2));
+                    var html = '<div class="paperList">';
+                    html += '<div class="listItemBodyText" style="font-weight: bold;">ItemId: ' + this.escapeHtml(entry.ItemId) + '</div>';
+                    meta.forEach(function(m) { html += m; });
+                    html += '<pre style="white-space: pre-wrap; margin-top: 0.5em;">' + json + '</pre>';
+                    html += '</div>';
+
+                    document.querySelector('#cacheSearchResult').innerHTML = html;
+                    document.querySelector('#cacheCsfdControls').style.display = 'block';
+
+                    var queryInput = document.querySelector('#cacheCsfdQuery');
+                    if (queryInput && !queryInput.value) {
+                        queryInput.value = entry.QueryUsed || details.LibraryTitle || '';
+                    }
+                },
+
+                searchCsfdForCache: function() {
+                    var query = document.querySelector('#cacheCsfdQuery').value.trim();
+                    if (!query) {
+                        Dashboard.alert('Enter a ČSFD search query.');
+                        return;
+                    }
+
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/search'),
+                        data: JSON.stringify({ Query: query }),
+                        contentType: 'application/json',
+                        dataType: 'json'
+                    }).then(function (results) {
+                        Dashboard.hideLoadingMsg();
+                        if (typeof results === 'string') {
+                            try { results = JSON.parse(results); } catch (e) {}
+                        }
+                        CsfdRatingOverlayConfig.renderCsfdResults(results);
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Search failed.');
+                    });
+                },
+
+                renderCsfdResults: function(results) {
+                    var container = document.querySelector('#cacheCsfdResults');
+                    if (!Array.isArray(results)) {
+                        container.innerHTML = '<div class="listItem">No results.</div>';
+                        return;
+                    }
+
+                    var html = '<div class="paperList">';
+                    if (results.length === 0) {
+                        html += '<div class="listItem">No results found.</div>';
+                    } else {
+                        results.forEach(function(res) {
+                            html += '<div class="listItem" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5em; border-bottom: 1px solid rgba(255,255,255,0.1);">';
+                            html += '<div>';
+                            html += '<div class="listItemBodyText" style="font-weight: bold;">' + CsfdRatingOverlayConfig.escapeHtml(res.Title) + (res.Year ? ' (' + res.Year + ')' : '') + '</div>';
+                            html += '<div class="listItemBodyText secondary">ID: ' + CsfdRatingOverlayConfig.escapeHtml(res.CsfdId) + (res.IsSeries ? ' (Series)' : '') + '</div>';
+                            html += '</div>';
+                            html += '<button is="emby-button" type="button" class="raised" onclick="CsfdRatingOverlayConfig.applyCsfdSelection(\'' + res.CsfdId + '\')">Use</button>';
+                            html += '</div>';
+                        });
+                    }
+                    html += '</div>';
+                    container.innerHTML = html;
+                },
+
+                applyCsfdSelection: function(csfdId) {
+                    if (!this.currentCacheItemId) {
+                        Dashboard.alert('Search cache and select an entry first.');
+                        return;
+                    }
+
+                    var queryUsed = document.querySelector('#cacheCsfdQuery').value;
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/cache/override'),
+                        data: JSON.stringify({ ItemIdOrTerm: this.currentCacheItemId, CsfdId: csfdId, QueryUsed: queryUsed }),
+                        contentType: 'application/json',
+                        dataType: 'json'
+                    }).then(function (details) {
+                        Dashboard.hideLoadingMsg();
+                        if (typeof details === 'string') {
+                            try { details = JSON.parse(details); } catch (e) {}
+                        }
+                        CsfdRatingOverlayConfig.renderCacheEntry(details);
+                        Dashboard.alert('Cache entry updated.');
+                    }, function (err) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Override failed: ' + err);
+                    });
+                },
+
+                applyDirectCsfdId: function() {
+                    var csfdId = document.querySelector('#cacheCsfdIdDirect').value.trim();
+                    if (!csfdId) {
+                        Dashboard.alert('Enter a ČSFD ID to apply.');
+                        return;
+                    }
+                    this.applyCsfdSelection(csfdId);
+                },
+
+                escapeHtml: function(str) {
+                    return (str || '').toString()
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
                 }
             };
 
@@ -365,6 +561,18 @@
 
             document.querySelector('#btnMatchSearch').addEventListener('click', function () {
                 CsfdRatingOverlayConfig.searchMatch();
+            });
+
+            document.querySelector('#btnCacheSearch').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.searchCache();
+            });
+
+            document.querySelector('#btnCacheSearchCsfd').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.searchCsfdForCache();
+            });
+
+            document.querySelector('#btnCacheUseCsfdId').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.applyDirectCsfdId();
             });
 
             document.addEventListener('pageshow', function (e) {
