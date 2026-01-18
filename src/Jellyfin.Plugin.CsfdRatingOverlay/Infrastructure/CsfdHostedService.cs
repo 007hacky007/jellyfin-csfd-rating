@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
 using Jellyfin.Plugin.CsfdRatingOverlay.Injection;
+using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using Microsoft.Extensions.Hosting;
@@ -90,25 +91,30 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
                     {
                         registerMethod.Invoke(null, new object?[] { data });
                         _logger.LogInformation("Registered index.html transformation with File Transformation plugin");
+                        _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Injected, "Successfully registered with File Transformation plugin");
                     }
                     else
                     {
                         _logger.LogWarning("File Transformation plugin found but could not construct transformation payload");
+                        _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Failed, "Could not construct transformation payload");
                     }
                 }
                 else
                 {
                     _logger.LogWarning("File Transformation plugin found but PluginInterface type missing");
+                     _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Failed, "File Transformation plugin Interface missing");
                 }
             }
             else
             {
                 _logger.LogWarning("File Transformation plugin not found. Overlay script will not be injected.");
+                _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.PluginNotFound, "File Transformation plugin not found");
             }
         }
         catch (Exception e)
         {
             _logger.LogError(e, "Failed to register transformation");
+             _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Failed, $"Exception: {e.Message}");
         }
     }
 

@@ -14,4 +14,7 @@ public class CsfdPluginStatus
     public bool IsPaused { get; set; }
     public int TotalLibraryItems { get; set; }
     public CsfdCacheStats CacheStats { get; set; } = new();
+
+    public OverlayInjectionStatus InjectionStatus { get; set; }
+    public string? InjectionMessage { get; set; }
 }

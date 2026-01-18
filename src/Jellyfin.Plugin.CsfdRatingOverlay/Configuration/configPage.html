@@ -82,6 +82,13 @@
                             <span>Errors:</span>
                             <span id="statErrors" style="font-weight: bold; color: #f44336;">-</span>
                         </div>
+                        <div style="margin-top: 1em; padding-top: 1em; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Overlay Injection:</span>
+                                <span id="statInjectionStatus" style="font-weight: bold;">-</span>
+                            </div>
+                            <div id="statInjectionMessage" style="font-size: 0.9em; opacity: 0.8; margin-top: 0.2em;"></div>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 1em;">
                         <button is="emby-button" type="button" class="raised" id="btnRefreshStatus">
@@ -227,6 +234,21 @@
                         document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
                         document.querySelector('#statNotFound').textContent = status.CacheStats.NotFound;
                         document.querySelector('#statErrors').textContent = status.CacheStats.Errors;
+
+                        var injStatus = document.querySelector('#statInjectionStatus');
+                        var injMsg = document.querySelector('#statInjectionMessage');
+                        
+                        var statusMap = {
+                            0: { text: "Not Attempted", color: "#9e9e9e" },
+                            1: { text: "Injected", color: "#4caf50" },
+                            2: { text: "Plugin Not Found", color: "#ff9800" },
+                            3: { text: "Failed", color: "#f44336" }
+                        };
+                        
+                        var s = statusMap[status.InjectionStatus] || { text: "Unknown", color: "#9e9e9e" };
+                        injStatus.textContent = s.text;
+                        injStatus.style.color = s.color;
+                        injMsg.textContent = status.InjectionMessage || "";
                         
                         var btnPause = document.querySelector('#btnPauseResume');
                         if (status.IsPaused) {

@@ -22,6 +22,9 @@ public class CsfdRatingService
     private readonly CsfdClient _csfdClient;
     private readonly ILogger<CsfdRatingService> _logger;
 
+    private OverlayInjectionStatus _injectionStatus = OverlayInjectionStatus.NotAttempted;
+    private string? _injectionMessage;
+
     public CsfdRatingService(
         ILibraryManager libraryManager,
         ICsfdCacheStore cacheStore,
@@ -91,6 +94,12 @@ public class CsfdRatingService
         });
     }
 
+    public void SetOverlayInjectionStatus(OverlayInjectionStatus status, string? message)
+    {
+        _injectionStatus = status;
+        _injectionMessage = message;
+    }
+
     public async Task<CsfdPluginStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         var stats = await _cacheStore.GetStatsAsync(cancellationToken).ConfigureAwait(false);
@@ -105,7 +114,9 @@ public class CsfdRatingService
             QueueSize = _queue.Count,
             IsPaused = _queue.IsPaused,
             TotalLibraryItems = totalItems,
-            CacheStats = stats
+            CacheStats = stats,
+            InjectionStatus = _injectionStatus,
+            InjectionMessage = _injectionMessage
         };
     }
 
