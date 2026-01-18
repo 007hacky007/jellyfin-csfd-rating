@@ -10,6 +10,11 @@ on:
         description: "Version (e.g. 1.0.0) when running manually"
         required: true
         type: string
+      prerelease:
+        description: "Mark as Pre-release"
+        required: false
+        type: boolean
+        default: true
 
 env:
   PROJECT_PATH: src/Jellyfin.Plugin.CsfdRatingOverlay/Jellyfin.Plugin.CsfdRatingOverlay.csproj
@@ -32,14 +37,20 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            8.0.x
+            9.0.x
 
       - name: Determine version and tag
         shell: bash
         run: |
+          IS_PRERELEASE="false"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#v}"
             TAG="${GITHUB_REF_NAME}"
+            if [[ "$VERSION" == *"-"* ]]; then
+              IS_PRERELEASE="true"
+            fi
           else
             VERSION="${{ inputs.version }}"
             if [ -z "$VERSION" ]; then
@@ -47,33 +58,44 @@ jobs:
               exit 1
             fi
             TAG="v${VERSION}"
+            IS_PRERELEASE="${{ inputs.prerelease }}"
           fi
 
+          # Jellyfin manifest requires strict numeric versions (System.Version).
+          # Strip any pre-release suffix (e.g., 0.0.1-test -> 0.0.1) for the manifest.
+          MANIFEST_VERSION=$(echo "$VERSION" | sed 's/-.*//')
+
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MANIFEST_VERSION=$MANIFEST_VERSION" >> $GITHUB_ENV
           echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
-          echo "ZIP_NAME=${PLUGIN_ID}.zip" >> $GITHUB_ENV
-          echo "ASSET_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PLUGIN_ID}.zip" >> $GITHUB_ENV
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_ENV
+          echo "BASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" >> $GITHUB_ENV
           echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
 
       - name: Restore
         run: dotnet restore $PROJECT_PATH
 
-      - name: Publish
-        run: dotnet publish $PROJECT_PATH -c Release -o ./artifacts/publish /p:Version=$VERSION
+      - name: Publish net8.0
+        run: dotnet publish $PROJECT_PATH -c Release -f net8.0 -o ./artifacts/publish_net8 /p:Version=$VERSION
 
-      - name: Create zip
+      - name: Publish net9.0
+        run: dotnet publish $PROJECT_PATH -c Release -f net9.0 -o ./artifacts/publish_net9 /p:Version=$VERSION
+
+      - name: Create zips
         shell: bash
         run: |
-          cd artifacts/publish
-          zip -r ../"$ZIP_NAME" .
+          cd artifacts/publish_net8
+          zip -r ../${PLUGIN_ID}_net8.zip .
+          cd ../publish_net9
+          zip -r ../${PLUGIN_ID}_net9.zip .
 
-      - name: Compute checksum
+      - name: Compute checksums
         shell: bash
         run: |
-          SHA=$(sha256sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
-          MD5=$(md5sum artifacts/"$ZIP_NAME" | cut -d ' ' -f1)
-          echo "ZIP_SHA256=$SHA" >> $GITHUB_ENV
-          echo "ZIP_MD5=$MD5" >> $GITHUB_ENV
+          MD5_8=$(md5sum artifacts/${PLUGIN_ID}_net8.zip | cut -d ' ' -f1)
+          MD5_9=$(md5sum artifacts/${PLUGIN_ID}_net9.zip | cut -d ' ' -f1)
+          echo "ZIP_MD5_8=$MD5_8" >> $GITHUB_ENV
+          echo "ZIP_MD5_9=$MD5_9" >> $GITHUB_ENV
 
       - name: Generate manifest
         shell: bash
@@ -96,13 +118,22 @@ jobs:
               "status": "stable",
               "versions": [
                 {
-                  "version": "${VERSION}",
-                  "targetAbi": "${TARGET_ABI}",
-                  "framework": "${FRAMEWORK}",
-                  "sourceUrl": "${ASSET_URL}",
-                  "checksum": "${ZIP_MD5}",
+                  "version": "${MANIFEST_VERSION}",
+                  "targetAbi": "10.11.0",
+                  "framework": "net9.0",
+                  "sourceUrl": "${BASE_URL}/${PLUGIN_ID}_net9.zip",
+                  "checksum": "${ZIP_MD5_9}",
                   "timestamp": "${TIMESTAMP}",
-                  "changelog": "See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                  "changelog": "Build: ${RELEASE_TAG}. See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                },
+                {
+                  "version": "${MANIFEST_VERSION}",
+                  "targetAbi": "10.10.0",
+                  "framework": "net8.0",
+                  "sourceUrl": "${BASE_URL}/${PLUGIN_ID}_net8.zip",
+                  "checksum": "${ZIP_MD5_8}",
+                  "timestamp": "${TIMESTAMP}",
+                  "changelog": "Build: ${RELEASE_TAG}. See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
                 }
               ]
             }
@@ -114,10 +145,11 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            artifacts/${{ env.ZIP_NAME }}
+            artifacts/${{ env.PLUGIN_ID }}_net8.zip
+            artifacts/${{ env.PLUGIN_ID }}_net9.zip
             artifacts/manifest.json
           draft: false
-          prerelease: false
-          make_latest: true
+          prerelease: ${{ env.IS_PRERELEASE }}
+          make_latest: ${{ env.IS_PRERELEASE == 'false' }} 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
