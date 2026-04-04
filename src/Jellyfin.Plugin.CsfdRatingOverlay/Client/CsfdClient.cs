@@ -21,7 +21,8 @@ public class CsfdClient
     private readonly HttpClient _httpClient;
     private readonly DebugLogger _debugLogger;
     private readonly ILogger<CsfdClient> _logger;
-    
+    private readonly AnubisChallengeSolver _anubisChallengeSolver;
+
     // Real browser User-Agents to avoid bot detection
     private static readonly string[] UserAgents = new[]
     {
@@ -30,39 +31,32 @@ public class CsfdClient
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
     };
 
-    public CsfdClient(HttpClient httpClient, DebugLogger debugLogger, ILogger<CsfdClient> logger)
+    public CsfdClient(HttpClient httpClient, DebugLogger debugLogger, ILogger<CsfdClient> logger, AnubisChallengeSolver anubisChallengeSolver)
     {
         _httpClient = httpClient;
         _debugLogger = debugLogger;
         _logger = logger;
+        _anubisChallengeSolver = anubisChallengeSolver;
     }
 
     public async Task<CsfdClientResult<IReadOnlyList<CsfdCandidate>>> SearchAsync(string query, CancellationToken cancellationToken)
     {
         var url = $"https://www.csfd.cz/hledat/?q={Uri.EscapeDataString(query)}";
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        // Use a random real User-Agent
-        request.Headers.UserAgent.ParseAdd(UserAgents[Random.Shared.Next(UserAgents.Length)]);
-        
-        _logger.LogDebug("Fetching CSFD search: {Url}", url);
-        var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        
-        if (IsThrottle(response.StatusCode))
+
+        var (html, throttleResult) = await FetchHtmlAsync(url, cancellationToken).ConfigureAwait(false);
+        if (throttleResult is not null)
         {
-            _logger.LogWarning("CSFD search throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
-            return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Throttle(GetRetryAfter(response), $"Search throttled: {(int)response.StatusCode}");
+            return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Throttle(throttleResult.Value.RetryAfter, throttleResult.Value.Error);
         }
 
-        if (!response.IsSuccessStatusCode)
+        if (html is null)
         {
-            _logger.LogError("CSFD search failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
-            _debugLogger.LogFailure($"Search:{query}", $"HTTP {(int)response.StatusCode}", url, null);
-            return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Fail($"HTTP {(int)response.StatusCode}");
+            _debugLogger.LogFailure($"Search:{query}", "Failed to fetch (Anubis or HTTP error)", url, null);
+            return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Fail("Failed to fetch search page");
         }
 
-        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var candidates = ParseCandidates(html);
-        
+
         // Log if no candidates found, might be useful
         if (candidates.Count == 0)
         {
@@ -76,28 +70,19 @@ public class CsfdClient
     {
         // Append /prehled/ to match standard browser behavior and node-csfd-api
         var url = $"https://www.csfd.cz/film/{csfdId}/prehled/";
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        // Use a random real User-Agent
-        request.Headers.UserAgent.ParseAdd(UserAgents[Random.Shared.Next(UserAgents.Length)]);
-        
-        _logger.LogDebug("Fetching CSFD rating: {Url}", url);
-        var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        
-        if (IsThrottle(response.StatusCode))
+
+        var (html, throttleResult) = await FetchHtmlAsync(url, cancellationToken).ConfigureAwait(false);
+        if (throttleResult is not null)
         {
-            _logger.LogWarning("CSFD rating throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
-            return CsfdClientResult<int>.Throttle(GetRetryAfter(response), $"Details throttled: {(int)response.StatusCode}");
+            return CsfdClientResult<int>.Throttle(throttleResult.Value.RetryAfter, throttleResult.Value.Error);
         }
 
-        if (!response.IsSuccessStatusCode)
+        if (html is null)
         {
-            _logger.LogError("CSFD rating failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
-            _debugLogger.LogFailure($"Rating:{csfdId}", $"HTTP {(int)response.StatusCode}", url, null);
-            return CsfdClientResult<int>.Fail($"HTTP {(int)response.StatusCode}");
+            _debugLogger.LogFailure($"Rating:{csfdId}", "Failed to fetch (Anubis or HTTP error)", url, null);
+            return CsfdClientResult<int>.Fail("Failed to fetch rating page");
         }
 
-        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        
         if (html.Contains("g-recaptcha") || html.Contains("Jste robot?"))
         {
              _logger.LogError("CSFD returned captcha/bot check for {Url}", url);
@@ -110,7 +95,7 @@ public class CsfdClient
         {
             _logger.LogError("Failed to parse rating percent for {Url}. HTML length: {Length}", url, html.Length);
             _debugLogger.LogFailure($"Rating:{csfdId}", "Rating percent not found", url, html);
-            
+
             var idx = html.IndexOf("film-rating-average");
             if (idx >= 0)
             {
@@ -127,6 +112,64 @@ public class CsfdClient
         }
 
         return CsfdClientResult<int>.Ok(percent.Value);
+    }
+
+    /// <summary>
+    /// Fetches HTML from the given URL, automatically solving Anubis challenges if encountered.
+    /// Returns (html, null) on success, or (null, throttleInfo) if throttled, or (null, null) on failure.
+    /// </summary>
+    private async Task<(string? Html, (TimeSpan? RetryAfter, string Error)? ThrottleResult)> FetchHtmlAsync(
+        string url, CancellationToken cancellationToken)
+    {
+        var userAgent = UserAgents[Random.Shared.Next(UserAgents.Length)];
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.UserAgent.ParseAdd(userAgent);
+
+        _logger.LogDebug("Fetching CSFD: {Url}", url);
+        var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (IsThrottle(response.StatusCode))
+        {
+            _logger.LogWarning("CSFD throttled. Status: {Status}, Url: {Url}", response.StatusCode, url);
+            return (null, (GetRetryAfter(response), $"Throttled: {(int)response.StatusCode}"));
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("CSFD request failed. Status: {Status}, Url: {Url}", response.StatusCode, url);
+            return (null, null);
+        }
+
+        var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!AnubisChallengeSolver.IsAnubisChallenge(html))
+        {
+            return (html, null);
+        }
+
+        // Anubis challenge detected - solve it and retry
+        _logger.LogInformation("Anubis challenge detected for {Url}, solving...", url);
+
+        using var solvedResponse = await _anubisChallengeSolver.SolveAndSubmitAsync(
+            _httpClient, html, new Uri(url), userAgent, cancellationToken).ConfigureAwait(false);
+
+        if (solvedResponse is null)
+        {
+            _logger.LogError("Failed to solve Anubis challenge for {Url}", url);
+            return (null, null);
+        }
+
+        var solvedHtml = await solvedResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        // Verify we didn't get another challenge
+        if (AnubisChallengeSolver.IsAnubisChallenge(solvedHtml))
+        {
+            _logger.LogError("Got another Anubis challenge after solving for {Url}", url);
+            return (null, null);
+        }
+
+        return (solvedHtml, null);
     }
 
     private static List<CsfdCandidate> ParseCandidates(string html)
