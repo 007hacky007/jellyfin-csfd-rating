@@ -169,13 +169,22 @@
     details.forEach(el => prepareDetail(el));
   });
 
-  mutationObserver.observe(document.body, { 
-      childList: true, 
-      subtree: true, 
-      attributes: true, 
-      attributeFilter: ['data-id', 'data-itemid'] 
+  mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-id', 'data-itemid']
   });
   scanNode(document.body);
+
+  // SPA navigation fallback: re-scan detail sections on URL changes
+  window.addEventListener('hashchange', () => {
+      if (overlayDetailEnabled === true) {
+          setTimeout(() => {
+              document.querySelectorAll(detailSelector).forEach(el => prepareDetail(el));
+          }, 500);
+      }
+  });
 
   function scanNode(root) {
     if (!(root instanceof HTMLElement)) return;
