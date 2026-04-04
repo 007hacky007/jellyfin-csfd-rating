@@ -23,6 +23,7 @@ public class CsfdRatingController : ControllerBase
         _cacheStore = cacheStore;
     }
 
+    [AllowAnonymous]
     [HttpGet("csfd/client-config")]
     public IActionResult GetClientConfig()
     {

@@ -48,8 +48,10 @@
       }
   };
 
-  // Check for client cache invalidation
-  checkClientConfig();
+  // Check for client cache invalidation (retry on auth failure)
+  checkClientConfig().catch(() => {
+      setTimeout(() => checkClientConfig().catch(() => {}), 3000);
+  });
 
   const cache = new Map();
   try {
