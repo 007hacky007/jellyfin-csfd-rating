@@ -31,9 +31,10 @@
   const pending = new Set();
   const rendered = new WeakMap();
   let flushTimer = null;
-  // Read cached setting from localStorage; default to true if never fetched
+  // Read cached setting from localStorage; null = not yet known (wait for config)
   var savedDetailSetting = localStorage.getItem('csfdOverlayDetailEnabled');
-  let overlayDetailEnabled = savedDetailSetting !== null ? savedDetailSetting === 'true' : true;
+  let overlayDetailEnabled = savedDetailSetting !== null ? savedDetailSetting === 'true' : null;
+  let configLoaded = savedDetailSetting !== null;
 
   // Expose cache clearing utility
   window.clearCsfdCache = () => {
@@ -89,13 +90,14 @@
                   var wasEnabled = overlayDetailEnabled;
                   overlayDetailEnabled = data.overlayDetailEnabled;
                   localStorage.setItem('csfdOverlayDetailEnabled', data.overlayDetailEnabled.toString());
-                  if (overlayDetailEnabled && !wasEnabled) {
-                      // Just became enabled - inject into any visible detail pages
+                  if (overlayDetailEnabled && wasEnabled !== true) {
+                      // Became enabled (from null/false) - inject into any visible detail pages
                       document.querySelectorAll(detailSelector).forEach(function(el) { prepareDetail(el); });
-                  } else if (!overlayDetailEnabled && wasEnabled) {
-                      // Just became disabled - remove existing detail elements
+                  } else if (!overlayDetailEnabled) {
+                      // Disabled - remove any existing detail elements
                       document.querySelectorAll('.csfd-detail-rating').forEach(function(el) { el.remove(); });
                   }
+                  configLoaded = true;
               }
           }
       } catch (e) {
