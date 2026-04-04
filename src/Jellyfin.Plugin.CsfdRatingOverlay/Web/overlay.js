@@ -178,13 +178,23 @@
   scanNode(document.body);
 
   // SPA navigation fallback: re-scan detail sections on URL changes
-  window.addEventListener('hashchange', () => {
-      if (overlayDetailEnabled === true) {
-          setTimeout(() => {
-              document.querySelectorAll(detailSelector).forEach(el => prepareDetail(el));
-          }, 500);
+  var lastHash = window.location.hash;
+  function checkDetailNavigation() {
+      if (overlayDetailEnabled !== true) return;
+      var currentHash = window.location.hash;
+      if (currentHash !== lastHash) {
+          lastHash = currentHash;
+          if (currentHash.includes('/details')) {
+              setTimeout(() => {
+                  document.querySelectorAll(detailSelector).forEach(el => prepareDetail(el));
+              }, 500);
+          }
       }
-  });
+  }
+  window.addEventListener('hashchange', checkDetailNavigation);
+  window.addEventListener('popstate', checkDetailNavigation);
+  // Poll as last resort for routers that don't fire events
+  setInterval(checkDetailNavigation, 2000);
 
   function scanNode(root) {
     if (!(root instanceof HTMLElement)) return;
