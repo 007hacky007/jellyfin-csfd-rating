@@ -31,6 +31,7 @@
   const pending = new Set();
   const rendered = new WeakMap();
   let flushTimer = null;
+  let overlayDetailEnabled = true;
 
   // Expose cache clearing utility
   window.clearCsfdCache = () => {
@@ -82,6 +83,9 @@
                   cache.clear();
               }
               localStorage.setItem(configKey, data.clientCacheVersion || 0);
+              if (typeof data.overlayDetailEnabled === 'boolean') {
+                  overlayDetailEnabled = data.overlayDetailEnabled;
+              }
           }
       } catch (e) {
           console.warn(logPrefix, 'Failed to check client config', e);
@@ -293,6 +297,7 @@
   }
 
   function prepareDetail(el) {
+    if (!overlayDetailEnabled) return;
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);

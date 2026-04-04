@@ -27,7 +27,7 @@ public class CsfdRatingController : ControllerBase
     public IActionResult GetClientConfig()
     {
         var config = Plugin.Instance.Configuration;
-        return Ok(new { clientCacheVersion = config.ClientCacheVersion });
+        return Ok(new { clientCacheVersion = config.ClientCacheVersion, overlayDetailEnabled = config.OverlayDetailEnabled });
     }
 
     [HttpGet("csfd/items/{itemId}")]

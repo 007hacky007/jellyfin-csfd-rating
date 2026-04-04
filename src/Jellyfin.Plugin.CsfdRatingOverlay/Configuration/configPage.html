@@ -30,6 +30,14 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkOverlayDetailEnabled" />
+                                <span>Show CSFD rating on item detail page</span>
+                            </label>
+                            <div class="fieldDescription">Displays an additional CSFD rating line on the item detail page in the web UI. Disable if you use native rating override to avoid duplicate ratings.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
                             <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
                             <div class="fieldDescription">Time to wait between requests to ČSFD to avoid rate limiting.</div>
@@ -200,6 +208,7 @@
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
                         document.querySelector('#chkEnabled').checked = config.Enabled;
                         document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                        document.querySelector('#chkOverlayDetailEnabled').checked = config.OverlayDetailEnabled;
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
@@ -213,6 +222,7 @@
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
                         config.Enabled = document.querySelector('#chkEnabled').checked;
                         config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                        config.OverlayDetailEnabled = document.querySelector('#chkOverlayDetailEnabled').checked;
                         config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
                         config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
                         config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);

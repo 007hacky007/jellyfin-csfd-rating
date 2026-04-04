@@ -20,11 +20,14 @@ public class PluginConfiguration : BasePluginConfiguration
         MaxRetries = 5;
         CooldownMinMinutes = 10;
         NativeRatingTarget = NativeRatingTarget.CommunityRating;
+        OverlayDetailEnabled = true;
     }
 
     public bool Enabled { get; set; }
 
     public bool OverlayInjectionEnabled { get; set; }
+
+    public bool OverlayDetailEnabled { get; set; }
 
     public int RequestDelayMs { get; set; }
 
