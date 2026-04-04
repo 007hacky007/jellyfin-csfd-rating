@@ -1,3 +1,5 @@
+using System.Composition;
+using System.Net;
 using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
@@ -6,7 +8,6 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
-using System.Composition;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 
@@ -27,7 +28,19 @@ public class ServiceRegistrator : IPluginServiceRegistrator
             var logger = provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsfdRateLimiter>>();
             return new CsfdRateLimiter(TimeSpan.FromMilliseconds(cfg.RequestDelayMs), TimeSpan.FromMinutes(cfg.CooldownMinMinutes), logger);
         });
-        services.AddHttpClient<CsfdClient>();
+        services.AddSingleton<AnubisChallengeSolver>();
+        services.AddSingleton<CookieContainer>();
+        services.AddHttpClient<CsfdClient>()
+            .ConfigurePrimaryHttpMessageHandler(provider =>
+            {
+                var cookieContainer = provider.GetRequiredService<CookieContainer>();
+                return new HttpClientHandler
+                {
+                    CookieContainer = cookieContainer,
+                    UseCookies = true,
+                    AllowAutoRedirect = true
+                };
+            });
         services.AddSingleton<ICsfdFetchProcessor, CsfdFetchProcessor>();
         services.AddSingleton<CsfdFetchQueue>();
         services.AddSingleton<CsfdRatingService>();
