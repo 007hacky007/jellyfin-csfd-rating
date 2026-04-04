@@ -212,7 +212,9 @@
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
-                        document.querySelector('#selNativeRatingTarget').value = config.NativeRatingTarget;
+                        var nrtMap = { CommunityRating: '0', CriticRating: '1', None: '2', Both: '3' };
+                        var nrtVal = config.NativeRatingTarget;
+                        document.querySelector('#selNativeRatingTarget').value = nrtMap[nrtVal] !== undefined ? nrtMap[nrtVal] : nrtVal;
                         Dashboard.hideLoadingMsg();
                     });
                 },
