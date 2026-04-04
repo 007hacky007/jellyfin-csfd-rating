@@ -30,6 +30,14 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkOverlayDetailEnabled" />
+                                <span>Show CSFD rating on item detail page</span>
+                            </label>
+                            <div class="fieldDescription">Displays an additional CSFD rating line on the item detail page in the web UI. Disable if you use native rating override to avoid duplicate ratings.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="txtRequestDelayMs">Request delay (ms)</label>
                             <input is="emby-input" type="number" id="txtRequestDelayMs" min="500" step="100" required />
                             <div class="fieldDescription">Time to wait between requests to ČSFD to avoid rate limiting.</div>
@@ -45,6 +53,17 @@
                             <label class="inputLabel inputLabelUnfocused" for="txtCooldownMinMinutes">Cooldown minimum (minutes)</label>
                             <input is="emby-input" type="number" id="txtCooldownMinMinutes" min="1" step="1" required />
                             <div class="fieldDescription">Minimum time to wait before retrying a failed item.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="selNativeRatingTarget">Native rating override</label>
+                            <select is="emby-select" id="selNativeRatingTarget" class="emby-select-withcolor">
+                                <option value="0">Community Rating (star rating; 0-10)</option>
+                                <option value="1">Critic Rating (tomato; 0-100%)</option>
+                                <option value="2">Do not override</option>
+                                <option value="3">Both (star + tomato)</option>
+                            </select>
+                            <div class="fieldDescription">Write CSFD rating into Jellyfin's native rating field so it appears in all clients (TV, mobile). Community Rating overrides TMDb/IMDb stars. Critic Rating uses the tomato/critic score slot (usually empty). Run "CSFD native rating sync" scheduled task after changing this setting to apply to existing items.</div>
                         </div>
 
                         <div>
@@ -189,9 +208,13 @@
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
                         document.querySelector('#chkEnabled').checked = config.Enabled;
                         document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                        document.querySelector('#chkOverlayDetailEnabled').checked = config.OverlayDetailEnabled;
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
+                        var nrtMap = { CommunityRating: '0', CriticRating: '1', None: '2', Both: '3' };
+                        var nrtVal = config.NativeRatingTarget;
+                        document.querySelector('#selNativeRatingTarget').value = nrtMap[nrtVal] !== undefined ? nrtMap[nrtVal] : nrtVal;
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -201,9 +224,11 @@
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
                         config.Enabled = document.querySelector('#chkEnabled').checked;
                         config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                        config.OverlayDetailEnabled = document.querySelector('#chkOverlayDetailEnabled').checked;
                         config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
                         config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
                         config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);
+                        config.NativeRatingTarget = parseInt(document.querySelector('#selNativeRatingTarget').value, 10);
 
                         ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);

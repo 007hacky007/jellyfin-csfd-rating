@@ -1,6 +1,16 @@
+using System.Text.Json.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum NativeRatingTarget
+{
+    CommunityRating = 0,
+    CriticRating = 1,
+    None = 2,
+    Both = 3
+}
 
 public class PluginConfiguration : BasePluginConfiguration
 {
@@ -11,11 +21,15 @@ public class PluginConfiguration : BasePluginConfiguration
         RequestDelayMs = 2000;
         MaxRetries = 5;
         CooldownMinMinutes = 10;
+        NativeRatingTarget = NativeRatingTarget.CommunityRating;
+        OverlayDetailEnabled = true;
     }
 
     public bool Enabled { get; set; }
 
     public bool OverlayInjectionEnabled { get; set; }
+
+    public bool OverlayDetailEnabled { get; set; }
 
     public int RequestDelayMs { get; set; }
 
@@ -24,4 +38,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public int CooldownMinMinutes { get; set; }
 
     public long ClientCacheVersion { get; set; }
+
+    public NativeRatingTarget NativeRatingTarget { get; set; }
 }

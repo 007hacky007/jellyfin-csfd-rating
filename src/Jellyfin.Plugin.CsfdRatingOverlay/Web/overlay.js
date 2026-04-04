@@ -31,6 +31,10 @@
   const pending = new Set();
   const rendered = new WeakMap();
   let flushTimer = null;
+  // Read cached setting from localStorage; null = not yet known (wait for config)
+  var savedDetailSetting = localStorage.getItem('csfdOverlayDetailEnabled');
+  let overlayDetailEnabled = savedDetailSetting !== null ? savedDetailSetting === 'true' : null;
+  let configLoaded = savedDetailSetting !== null;
 
   // Expose cache clearing utility
   window.clearCsfdCache = () => {
@@ -44,8 +48,10 @@
       }
   };
 
-  // Check for client cache invalidation
-  checkClientConfig();
+  // Check for client cache invalidation (retry on auth failure)
+  checkClientConfig().catch(() => {
+      setTimeout(() => checkClientConfig().catch(() => {}), 3000);
+  });
 
   const cache = new Map();
   try {
@@ -82,6 +88,19 @@
                   cache.clear();
               }
               localStorage.setItem(configKey, data.clientCacheVersion || 0);
+              if (typeof data.overlayDetailEnabled === 'boolean') {
+                  var wasEnabled = overlayDetailEnabled;
+                  overlayDetailEnabled = data.overlayDetailEnabled;
+                  localStorage.setItem('csfdOverlayDetailEnabled', data.overlayDetailEnabled.toString());
+                  if (overlayDetailEnabled && wasEnabled !== true) {
+                      // Became enabled (from null/false) - inject into any visible detail pages
+                      document.querySelectorAll(detailSelector).forEach(function(el) { prepareDetail(el); });
+                  } else if (!overlayDetailEnabled) {
+                      // Disabled - remove any existing detail elements
+                      document.querySelectorAll('.csfd-detail-rating').forEach(function(el) { el.remove(); });
+                  }
+                  configLoaded = true;
+              }
           }
       } catch (e) {
           console.warn(logPrefix, 'Failed to check client config', e);
@@ -152,13 +171,32 @@
     details.forEach(el => prepareDetail(el));
   });
 
-  mutationObserver.observe(document.body, { 
-      childList: true, 
-      subtree: true, 
-      attributes: true, 
-      attributeFilter: ['data-id', 'data-itemid'] 
+  mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-id', 'data-itemid']
   });
   scanNode(document.body);
+
+  // SPA navigation fallback: re-scan detail sections on URL changes
+  var lastHash = window.location.hash;
+  function checkDetailNavigation() {
+      if (overlayDetailEnabled !== true) return;
+      var currentHash = window.location.hash;
+      if (currentHash !== lastHash) {
+          lastHash = currentHash;
+          if (currentHash.includes('/details')) {
+              setTimeout(() => {
+                  document.querySelectorAll(detailSelector).forEach(el => prepareDetail(el));
+              }, 500);
+          }
+      }
+  }
+  window.addEventListener('hashchange', checkDetailNavigation);
+  window.addEventListener('popstate', checkDetailNavigation);
+  // Poll as last resort for routers that don't fire events
+  setInterval(checkDetailNavigation, 2000);
 
   function scanNode(root) {
     if (!(root instanceof HTMLElement)) return;
@@ -293,6 +331,7 @@
   }
 
   function prepareDetail(el) {
+    if (overlayDetailEnabled !== true) return;
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
@@ -319,6 +358,7 @@
   }
 
   function injectDetailRating(el, data) {
+      if (overlayDetailEnabled !== true) return;
       let container = el.querySelector('.csfd-detail-rating');
       if (!container) {
           console.debug(logPrefix, 'injectDetailRating: Creating new container');
@@ -432,12 +472,14 @@
       }
     });
 
-    document.querySelectorAll(detailSelector).forEach(el => {
-        const id = getItemId(el);
-        if (id && map[id]) {
-            injectDetailRating(el, map[id]);
-        }
-    });
+    if (overlayDetailEnabled) {
+        document.querySelectorAll(detailSelector).forEach(el => {
+            const id = getItemId(el);
+            if (id && map[id]) {
+                injectDetailRating(el, map[id]);
+            }
+        });
+    }
   }
 
   function applyBadge(el, data) {
