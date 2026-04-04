@@ -35,3 +35,4 @@ src/Jellyfin.Plugin.CsfdRatingOverlay/obj/
 
 # Temporary
 *.tmp
+tests/overlay/node_modules/
