@@ -47,6 +47,16 @@
                             <div class="fieldDescription">Minimum time to wait before retrying a failed item.</div>
                         </div>
 
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="selNativeRatingTarget">Native rating override</label>
+                            <select is="emby-select" id="selNativeRatingTarget" class="emby-select-withcolor">
+                                <option value="0">Community Rating (star rating; 0-10)</option>
+                                <option value="1">Critic Rating (tomato; 0-100%)</option>
+                                <option value="2">Do not override</option>
+                            </select>
+                            <div class="fieldDescription">Write CSFD rating into Jellyfin's native rating field so it appears in all clients (TV, mobile). Community Rating overrides TMDb/IMDb stars. Critic Rating uses the tomato/critic score slot (usually empty). Run "CSFD native rating sync" scheduled task after changing this setting to apply to existing items.</div>
+                        </div>
+
                         <div>
                             <button is="emby-button" type="submit" class="raised button-submit block">
                                 <span>Save</span>
@@ -192,6 +202,7 @@
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
+                        document.querySelector('#selNativeRatingTarget').value = config.NativeRatingTarget;
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -204,6 +215,7 @@
                         config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
                         config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
                         config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);
+                        config.NativeRatingTarget = parseInt(document.querySelector('#selNativeRatingTarget').value, 10);
 
                         ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
