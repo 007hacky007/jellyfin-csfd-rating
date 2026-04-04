@@ -85,6 +85,9 @@
               localStorage.setItem(configKey, data.clientCacheVersion || 0);
               if (typeof data.overlayDetailEnabled === 'boolean') {
                   overlayDetailEnabled = data.overlayDetailEnabled;
+                  if (!overlayDetailEnabled) {
+                      document.querySelectorAll('.csfd-detail-rating').forEach(function(el) { el.remove(); });
+                  }
               }
           }
       } catch (e) {
