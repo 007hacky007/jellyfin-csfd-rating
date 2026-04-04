@@ -440,12 +440,14 @@
       }
     });
 
-    document.querySelectorAll(detailSelector).forEach(el => {
-        const id = getItemId(el);
-        if (id && map[id]) {
-            injectDetailRating(el, map[id]);
-        }
-    });
+    if (overlayDetailEnabled) {
+        document.querySelectorAll(detailSelector).forEach(el => {
+            const id = getItemId(el);
+            if (id && map[id]) {
+                injectDetailRating(el, map[id]);
+            }
+        });
+    }
   }
 
   function applyBadge(el, data) {
