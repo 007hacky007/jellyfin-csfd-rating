@@ -1,7 +1,9 @@
+using System.Text.Json.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum NativeRatingTarget
 {
     CommunityRating = 0,
