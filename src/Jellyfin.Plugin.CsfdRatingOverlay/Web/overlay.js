@@ -86,7 +86,9 @@
               if (typeof data.overlayDetailEnabled === 'boolean') {
                   overlayDetailEnabled = data.overlayDetailEnabled;
                   if (!overlayDetailEnabled) {
-                      document.querySelectorAll('.csfd-detail-rating').forEach(function(el) { el.remove(); });
+                      document.querySelectorAll('.csfd-detail-rating').forEach(function(el) {
+                          el.remove();
+                      });
                   }
               }
           }
@@ -327,6 +329,7 @@
   }
 
   function injectDetailRating(el, data) {
+      if (!overlayDetailEnabled) return;
       let container = el.querySelector('.csfd-detail-rating');
       if (!container) {
           console.debug(logPrefix, 'injectDetailRating: Creating new container');
