@@ -31,7 +31,7 @@
   const pending = new Set();
   const rendered = new WeakMap();
   let flushTimer = null;
-  let overlayDetailEnabled = true;
+  let overlayDetailEnabled = null; // null = unknown (config not loaded yet), true/false after config fetch
 
   // Expose cache clearing utility
   window.clearCsfdCache = () => {
@@ -85,10 +85,9 @@
               localStorage.setItem(configKey, data.clientCacheVersion || 0);
               if (typeof data.overlayDetailEnabled === 'boolean') {
                   overlayDetailEnabled = data.overlayDetailEnabled;
-                  if (!overlayDetailEnabled) {
-                      document.querySelectorAll('.csfd-detail-rating').forEach(function(el) {
-                          el.remove();
-                      });
+                  if (overlayDetailEnabled) {
+                      // Config loaded and detail is enabled - inject into any visible detail pages
+                      document.querySelectorAll(detailSelector).forEach(function(el) { prepareDetail(el); });
                   }
               }
           }
@@ -302,7 +301,7 @@
   }
 
   function prepareDetail(el) {
-    if (!overlayDetailEnabled) return;
+    if (overlayDetailEnabled !== true) return;
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
@@ -329,7 +328,7 @@
   }
 
   function injectDetailRating(el, data) {
-      if (!overlayDetailEnabled) return;
+      if (overlayDetailEnabled !== true) return;
       let container = el.querySelector('.csfd-detail-rating');
       if (!container) {
           console.debug(logPrefix, 'injectDetailRating: Creating new container');
