@@ -30,27 +30,24 @@ public static class CsfdNativeRatingHelper
 
         var changed = false;
 
-        switch (target)
+        if (target is NativeRatingTarget.CommunityRating or NativeRatingTarget.Both)
         {
-            case NativeRatingTarget.CommunityRating:
-                var stars = (float)(entry.Percent.Value / 10.0);
-                if (item.CommunityRating != stars)
-                {
-                    item.CommunityRating = stars;
-                    changed = true;
-                }
+            var stars = (float)(entry.Percent.Value / 10.0);
+            if (item.CommunityRating != stars)
+            {
+                item.CommunityRating = stars;
+                changed = true;
+            }
+        }
 
-                break;
-
-            case NativeRatingTarget.CriticRating:
-                var percent = (float)entry.Percent.Value;
-                if (item.CriticRating != percent)
-                {
-                    item.CriticRating = percent;
-                    changed = true;
-                }
-
-                break;
+        if (target is NativeRatingTarget.CriticRating or NativeRatingTarget.Both)
+        {
+            var percent = (float)entry.Percent.Value;
+            if (item.CriticRating != percent)
+            {
+                item.CriticRating = percent;
+                changed = true;
+            }
         }
 
         // Store CSFD ID in ProviderIds so it's visible in item metadata
@@ -64,10 +61,10 @@ public static class CsfdNativeRatingHelper
         if (changed)
         {
             logger?.LogDebug(
-                "Applied CSFD rating to {ItemName}: {Target}={Value}, CsfdId={CsfdId}",
+                "Applied CSFD rating to {ItemName}: {Target}, Percent={Percent}, CsfdId={CsfdId}",
                 item.Name,
                 target,
-                target == NativeRatingTarget.CommunityRating ? entry.Percent.Value / 10.0 : entry.Percent.Value,
+                entry.Percent.Value,
                 entry.CsfdId);
         }
 

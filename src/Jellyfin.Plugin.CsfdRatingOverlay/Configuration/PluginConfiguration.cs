@@ -6,7 +6,8 @@ public enum NativeRatingTarget
 {
     CommunityRating = 0,
     CriticRating = 1,
-    None = 2
+    None = 2,
+    Both = 3
 }
 
 public class PluginConfiguration : BasePluginConfiguration
