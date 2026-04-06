@@ -53,6 +53,12 @@
                                 <option value="LogoWhiteRed">Icon #2</option>
                             </select>
                             <div class="fieldDescription">Optional icon shown before the detail-page rating value.</div>
+                            <div id="detailIconPreviewWrap" style="display: flex; align-items: center; gap: 0.75em; margin-top: 0.75em;">
+                                <span style="opacity: 0.85;">Preview:</span>
+                                <div id="detailIconPreviewText" style="font-weight: 600;">CSFD: ⭐️ 7.4</div>
+                                <img id="detailIconPreviewImage" alt="Selected detail icon preview" style="display: none; width: 1.5rem; height: 1.5rem; object-fit: contain;" />
+                                <div id="detailIconPreviewValue" style="display: none; font-weight: 600;">7.4</div>
+                            </div>
                         </div>
 
                         <div class="inputContainer">
@@ -236,6 +242,7 @@
                         var nrtMap = { CommunityRating: '0', CriticRating: '1', None: '2', Both: '3' };
                         var nrtVal = config.NativeRatingTarget;
                         document.querySelector('#selNativeRatingTarget').value = nrtMap[nrtVal] !== undefined ? nrtMap[nrtVal] : nrtVal;
+                        CsfdRatingOverlayConfig.updateDetailIconPreview();
                         Dashboard.hideLoadingMsg();
                     });
                 },
@@ -582,6 +589,37 @@
                         .replace(/>/g, '&gt;')
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&#39;');
+                },
+
+                getDetailIconPreviewUrl: function(style) {
+                    if (style === 'LogoSocial') {
+                        return ApiClient.getUrl('Plugins/CsfdRatingOverlay/web/assets/logo-social.png');
+                    }
+                    if (style === 'LogoWhiteRed') {
+                        return ApiClient.getUrl('Plugins/CsfdRatingOverlay/web/assets/logo-white-red-small.png');
+                    }
+                    return null;
+                },
+
+                updateDetailIconPreview: function() {
+                    var style = document.querySelector('#selDetailIconStyle').value || 'None';
+                    var text = document.querySelector('#detailIconPreviewText');
+                    var image = document.querySelector('#detailIconPreviewImage');
+                    var value = document.querySelector('#detailIconPreviewValue');
+                    var iconUrl = this.getDetailIconPreviewUrl(style);
+
+                    if (!iconUrl) {
+                        text.style.display = '';
+                        image.style.display = 'none';
+                        image.removeAttribute('src');
+                        value.style.display = 'none';
+                        return;
+                    }
+
+                    text.style.display = 'none';
+                    image.style.display = '';
+                    image.src = iconUrl;
+                    value.style.display = '';
                 }
             };
 
@@ -658,10 +696,15 @@
                 CsfdRatingOverlayConfig.applyDirectCsfdId();
             });
 
+            document.querySelector('#selDetailIconStyle').addEventListener('change', function () {
+                CsfdRatingOverlayConfig.updateDetailIconPreview();
+            });
+
             document.addEventListener('pageshow', function (e) {
                 if (e.target.id === 'CsfdRatingOverlayConfigPage') {
                     CsfdRatingOverlayConfig.loadConfiguration();
                     CsfdRatingOverlayConfig.loadStatus();
+                    CsfdRatingOverlayConfig.updateDetailIconPreview();
                 }
             });
         </script>
