@@ -405,10 +405,17 @@ public class CsfdRatingService
         };
 
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("ManualMatch: cache upserted for {ItemId}, CsfdId={CsfdId}", normalizedItemId, csfdId);
+
         if (Guid.TryParse(normalizedItemId, out var normalizedGuid))
         {
             var item = _libraryManager.GetItemById(normalizedGuid);
+            _logger.LogInformation("ManualMatch: GetItemById({Guid}) returned {Result}", normalizedGuid, item is null ? "null" : item.Name);
             await PersistLibraryMetadataAsync(item, entry, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            _logger.LogWarning("ManualMatch: could not parse normalizedItemId={ItemId} as GUID, skipping metadata persist", normalizedItemId);
         }
 
         InvalidateClientCacheVersion();
@@ -455,6 +462,7 @@ public class CsfdRatingService
     {
         if (item is null)
         {
+            _logger.LogWarning("PersistLibraryMetadata: item is null for CsfdId={CsfdId}, skipping", entry.CsfdId);
             return;
         }
 
@@ -474,9 +482,11 @@ public class CsfdRatingService
 
         if (!changed)
         {
+            _logger.LogDebug("PersistLibraryMetadata: no changes for {ItemName} (CsfdId={CsfdId})", item.Name, entry.CsfdId);
             return;
         }
 
+        _logger.LogInformation("PersistLibraryMetadata: saving {ItemName} with CsfdId={CsfdId}, NativeTarget={Target}", item.Name, entry.CsfdId, config.NativeRatingTarget);
         await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
     }
 
