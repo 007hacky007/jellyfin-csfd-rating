@@ -181,7 +181,7 @@
     }
     .csfd-detail-rating-icon {
       width: auto;
-      height: 1rem;
+      height: 1.2rem;
       display: inline-block;
       object-fit: contain;
       vertical-align: middle;
