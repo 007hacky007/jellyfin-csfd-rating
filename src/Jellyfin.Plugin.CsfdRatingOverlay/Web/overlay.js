@@ -514,7 +514,7 @@
           const rawStatus = (entry.status ?? entry.Status ?? '').toString().toLowerCase();
           const starsValue = typeof entry.stars === 'number' ? entry.stars : typeof entry.Stars === 'number' ? entry.Stars : null;
           
-          if (rawStatus !== 'resolved' && rawStatus !== '1' || starsValue === null || starsValue === 0) {
+          if ((rawStatus !== 'resolved' && rawStatus !== '1') || starsValue === null || starsValue === 0) {
               entry._expires = now + (10 * 60 * 1000); // 10 minutes
           }
           
