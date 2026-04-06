@@ -18,6 +18,32 @@ Adds ČSFD ratings to Jellyfin movies and series. It fetches ratings from ČSFD,
 6. Restart Jellyfin.
 7. Profit!
 
+## Troubleshooting: File Transformation plugin not working
+
+If the overlay script is not being injected automatically, the File Transformation plugin may not have permission to modify the `index.html` file. This typically happens when the file is owned by `root` but Jellyfin runs as the `jellyfin` user.
+
+You can verify this by checking the file ownership:
+
+```bash
+ls -la /usr/share/jellyfin/web/index.html
+```
+
+If it shows `root:root` and your Jellyfin runs under the `jellyfin` user, the File Transformation plugin cannot modify the file.
+
+To fix this, create a systemd drop-in that restores ownership before Jellyfin starts:
+
+```bash
+sudo mkdir -p /etc/systemd/system/jellyfin.service.d
+sudo tee /etc/systemd/system/jellyfin.service.d/fix-perms.conf <<EOF
+[Service]
+ExecStartPre=+/bin/chown jellyfin:jellyfin /usr/share/jellyfin/web/index.html
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart jellyfin
+```
+
+The `+` prefix in `ExecStartPre` runs the command as root regardless of the service user, so it can change the file ownership before Jellyfin (and the File Transformation plugin) starts. This is needed because Jellyfin package updates may reset the file ownership back to `root`.
+
 ## Manual Overlay Injection
 
 If you prefer not to use the **File Transformation** plugin, you can manually inject the overlay script into your Jellyfin web interface.
