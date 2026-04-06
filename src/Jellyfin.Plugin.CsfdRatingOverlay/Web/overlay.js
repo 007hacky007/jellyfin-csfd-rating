@@ -34,6 +34,9 @@
   // Read cached setting from localStorage; null = not yet known (wait for config)
   var savedDetailSetting = localStorage.getItem('csfdOverlayDetailEnabled');
   let overlayDetailEnabled = savedDetailSetting !== null ? savedDetailSetting === 'true' : null;
+  var savedPosterSetting = localStorage.getItem('csfdOverlayPosterEnabled');
+  let overlayPosterEnabled = savedPosterSetting !== null ? savedPosterSetting === 'true' : null;
+  let detailIconStyle = localStorage.getItem('csfdDetailIconStyle') || 'None';
   let configLoaded = savedDetailSetting !== null;
 
   // Expose cache clearing utility
@@ -41,6 +44,9 @@
       try {
           sessionStorage.removeItem(sessionKey);
           localStorage.removeItem(configKey);
+          localStorage.removeItem('csfdOverlayPosterEnabled');
+          localStorage.removeItem('csfdOverlayDetailEnabled');
+          localStorage.removeItem('csfdDetailIconStyle');
           console.log(logPrefix, 'Cache cleared');
           location.reload();
       } catch (e) {
@@ -69,6 +75,23 @@
     }
   } catch (err) {
     console.warn(logPrefix, 'Failed to restore cache', err);
+  }
+
+  function normalizeDetailIconStyle(value) {
+      if (value === 1 || value === '1' || value === 'LogoSocial') return 'LogoSocial';
+      if (value === 2 || value === '2' || value === 'LogoWhiteRed') return 'LogoWhiteRed';
+      return 'None';
+  }
+
+  function getDetailIconUrl() {
+      switch (detailIconStyle) {
+          case 'LogoSocial':
+              return apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/web/assets/logo-social.png';
+          case 'LogoWhiteRed':
+              return apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/web/assets/logo-white-red-small.png';
+          default:
+              return null;
+      }
   }
 
   async function checkClientConfig() {
@@ -101,6 +124,27 @@
                   }
                   configLoaded = true;
               }
+              if (typeof data.overlayPosterEnabled === 'boolean') {
+                  var wasPosterEnabled = overlayPosterEnabled;
+                  overlayPosterEnabled = data.overlayPosterEnabled;
+                  localStorage.setItem('csfdOverlayPosterEnabled', data.overlayPosterEnabled.toString());
+                  if (overlayPosterEnabled === false) {
+                      document.querySelectorAll('.csfd-rating-badge').forEach(function(el) { el.remove(); });
+                  } else if (wasPosterEnabled !== true) {
+                      document.querySelectorAll(cardSelector).forEach(function(el) { prepareCard(el); });
+                  }
+              }
+              detailIconStyle = normalizeDetailIconStyle(data.detailIconStyle);
+              localStorage.setItem('csfdDetailIconStyle', detailIconStyle);
+              if (overlayDetailEnabled === true) {
+                  document.querySelectorAll(detailSelector).forEach(function(el) {
+                      if (cache.has(getItemId(el))) {
+                          injectDetailRating(el, cache.get(getItemId(el)));
+                      } else {
+                          injectDetailRating(el, null);
+                      }
+                  });
+              }
           }
       } catch (e) {
           console.warn(logPrefix, 'Failed to check client config', e);
@@ -129,6 +173,18 @@
       background: rgba(255, 255, 255, 0.2);
       color: #f5f5f5;
       font-style: italic;
+    }
+    .csfd-detail-rating {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4em;
+    }
+    .csfd-detail-rating-icon {
+      width: auto;
+      height: 1rem;
+      display: inline-block;
+      object-fit: contain;
+      vertical-align: middle;
     }
   `;
   document.head.appendChild(style);
@@ -240,6 +296,15 @@
   }
 
   function prepareCard(el) {
+    if (overlayPosterEnabled === false) {
+        const container = ensureContainer(el);
+        if (container) {
+            const badge = container.querySelector('.csfd-rating-badge');
+            if (badge) badge.remove();
+        }
+        return;
+    }
+
     // Skip if this element is a button or inside a button/text container
     if (el.tagName === 'BUTTON' || el.closest('button') || el.closest('.cardText')) {
         return;
@@ -383,20 +448,29 @@
           }
       }
 
-      if (!data) {
-          container.textContent = 'CSFD: - ⭐️';
-          return;
-      }
-      
-      const rawStatus = (data.status ?? data.Status ?? '').toString().toLowerCase();
-      if (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1') {
-          container.textContent = 'CSFD: - ⭐️';
-          return;
+      const iconUrl = getDetailIconUrl();
+      const rawStatus = (data && (data.status ?? data.Status ?? '').toString().toLowerCase()) || '';
+      const starsValue = data && (typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null);
+      const text = !data || (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1')
+          ? (iconUrl ? '- ⭐️' : 'CSFD: - ⭐️')
+          : (starsValue !== null
+              ? (iconUrl ? `${starsValue.toFixed(1)}` : `CSFD: ⭐️ ${starsValue.toFixed(1)}`)
+              : (iconUrl ? '- ⭐️' : 'CSFD: - ⭐️'));
+
+      container.textContent = '';
+      if (iconUrl) {
+          const icon = document.createElement('img');
+          icon.src = iconUrl;
+          icon.alt = 'CSFD';
+          icon.className = 'csfd-detail-rating-icon';
+          container.appendChild(icon);
       }
 
-      const starsValue = typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null;
-      const text = starsValue !== null ? `CSFD: ⭐️ ${starsValue.toFixed(1)}` : 'CSFD: - ⭐️';
-      container.textContent = text;
+      const textNode = document.createElement('span');
+      textNode.textContent = text;
+      container.appendChild(textNode);
+
+      return;
   }
 
   function queueFetch(id) {

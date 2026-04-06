@@ -49,5 +49,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
     <EmbeddedResource Include="Web/overlay.js" />
+    <EmbeddedResource Include="Web/Assets/*.png" />
   </ItemGroup>
 </Project>

@@ -12,22 +12,34 @@ public enum NativeRatingTarget
     Both = 3
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DetailIconStyle
+{
+    None = 0,
+    LogoSocial = 1,
+    LogoWhiteRed = 2
+}
+
 public class PluginConfiguration : BasePluginConfiguration
 {
     public PluginConfiguration()
     {
         Enabled = true;
         OverlayInjectionEnabled = true;
+        OverlayPosterEnabled = true;
         RequestDelayMs = 2000;
         MaxRetries = 5;
         CooldownMinMinutes = 10;
         NativeRatingTarget = NativeRatingTarget.CommunityRating;
         OverlayDetailEnabled = true;
+        DetailIconStyle = DetailIconStyle.None;
     }
 
     public bool Enabled { get; set; }
 
     public bool OverlayInjectionEnabled { get; set; }
+
+    public bool OverlayPosterEnabled { get; set; }
 
     public bool OverlayDetailEnabled { get; set; }
 
@@ -40,4 +52,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public long ClientCacheVersion { get; set; }
 
     public NativeRatingTarget NativeRatingTarget { get; set; }
+
+    public DetailIconStyle DetailIconStyle { get; set; }
 }

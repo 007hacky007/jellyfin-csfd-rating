@@ -24,9 +24,17 @@
                         <div class="inputContainer">
                             <label class="emby-checkbox-label">
                                 <input is="emby-checkbox" type="checkbox" id="chkOverlayInjectionEnabled" />
-                                <span>Enable web overlay injection</span>
+                                <span>Inject web UI helper script</span>
                             </label>
-                            <div class="fieldDescription">Injects a script into the web interface to display rating badges on posters.</div>
+                            <div class="fieldDescription">Loads the plugin web script into Jellyfin Web. This is required for poster badges and the custom detail-page row.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="chkOverlayPosterEnabled" />
+                                <span>Show CSFD rating on posters</span>
+                            </label>
+                            <div class="fieldDescription">Displays the floating CSFD badge on poster cards in Jellyfin Web.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -34,7 +42,17 @@
                                 <input is="emby-checkbox" type="checkbox" id="chkOverlayDetailEnabled" />
                                 <span>Show CSFD rating on item detail page</span>
                             </label>
-                            <div class="fieldDescription">Displays an additional CSFD rating line on the item detail page in the web UI. Disable if you use native rating override to avoid duplicate ratings.</div>
+                            <div class="fieldDescription">Displays an additional CSFD rating row on the item detail page in Jellyfin Web. This still needs the web UI helper script above, but it no longer requires poster badges.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="selDetailIconStyle">Detail page icon</label>
+                            <select is="emby-select" id="selDetailIconStyle" class="emby-select-withcolor">
+                                <option value="None">No icon</option>
+                                <option value="LogoSocial">Icon #1</option>
+                                <option value="LogoWhiteRed">Icon #2</option>
+                            </select>
+                            <div class="fieldDescription">Optional icon shown before the detail-page rating value.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -209,7 +227,9 @@
                         CsfdRatingOverlayConfig.pluginConfig = config;
                         document.querySelector('#chkEnabled').checked = config.Enabled;
                         document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
+                        document.querySelector('#chkOverlayPosterEnabled').checked = config.OverlayPosterEnabled !== false;
                         document.querySelector('#chkOverlayDetailEnabled').checked = config.OverlayDetailEnabled;
+                        document.querySelector('#selDetailIconStyle').value = config.DetailIconStyle || 'None';
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
@@ -226,7 +246,9 @@
                         CsfdRatingOverlayConfig.pluginConfig = config;
                         config.Enabled = document.querySelector('#chkEnabled').checked;
                         config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
+                        config.OverlayPosterEnabled = document.querySelector('#chkOverlayPosterEnabled').checked;
                         config.OverlayDetailEnabled = document.querySelector('#chkOverlayDetailEnabled').checked;
+                        config.DetailIconStyle = document.querySelector('#selDetailIconStyle').value;
                         config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
                         config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
                         config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);

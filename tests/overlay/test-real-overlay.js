@@ -65,7 +65,9 @@ async function createEnv(opts = {}) {
                 ok: true,
                 json: async () => ({
                     clientCacheVersion: 1,
-                    overlayDetailEnabled: opts.configResponse
+                    overlayDetailEnabled: typeof opts.configResponse === 'object' ? opts.configResponse.overlayDetailEnabled : opts.configResponse,
+                    overlayPosterEnabled: typeof opts.configResponse === 'object' ? opts.configResponse.overlayPosterEnabled : true,
+                    detailIconStyle: typeof opts.configResponse === 'object' ? opts.configResponse.detailIconStyle || 'None' : 'None'
                 })
             };
         }
@@ -133,6 +135,10 @@ async function createEnv(opts = {}) {
         return el ? el.textContent : null;
     }
 
+    function getDetailIcon() {
+        return document.querySelector('.csfd-detail-rating img');
+    }
+
     function getBadgeCount() {
         return document.querySelectorAll('.csfd-rating-badge').length;
     }
@@ -171,7 +177,7 @@ async function createEnv(opts = {}) {
     return {
         dom, window, document, fetchCalls,
         flush, resolveConfig,
-        getDetailCount, getDetailText, getBadgeCount,
+        getDetailCount, getDetailText, getDetailIcon, getBadgeCount,
         addDetailSection, addMovieCard, navigateToDetail
     };
 }
@@ -208,7 +214,7 @@ async function runTests() {
     console.log(`\n${currentTest}`);
     {
         const env = await createEnv({
-            configResponse: true,
+            configResponse: { overlayDetailEnabled: true, overlayPosterEnabled: true, detailIconStyle: 'None' },
             url: 'http://localhost/web/index.html#!/details?id=' + TEST_ID_RAW + '&serverId=abc',
             bodyHtml: '<div class="itemMiscInfo itemMiscInfo-primary"></div>',
             sessionCache: { [TEST_ID_DASHED]: TEST_RATING }
@@ -216,6 +222,23 @@ async function runTests() {
         await env.flush();
         assert(env.getDetailCount() === 1, 'Detail element injected');
         assert(env.getDetailText() !== null && env.getDetailText().includes('7.4'), 'Shows correct rating');
+    }
+
+    // ----------------------------------------------------------
+    currentTest = '4. Detail-only mode disables poster badges but keeps detail rating';
+    console.log(`\n${currentTest}`);
+    {
+        const env = await createEnv({
+            configResponse: { overlayDetailEnabled: true, overlayPosterEnabled: false, detailIconStyle: 'LogoSocial' },
+            url: 'http://localhost/web/index.html#!/details?id=' + TEST_ID_RAW + '&serverId=abc',
+            bodyHtml: '<div class="itemMiscInfo itemMiscInfo-primary"></div>',
+            sessionCache: { [TEST_ID_DASHED]: TEST_RATING }
+        });
+        env.addMovieCard(TEST_ID_DASHED);
+        await env.flush();
+        assert(env.getDetailCount() === 1, 'Detail row still renders in detail-only mode');
+        assert(env.getBadgeCount() === 0, 'Poster badge is not rendered when poster overlays are disabled');
+        assert(env.getDetailIcon() && env.getDetailIcon().getAttribute('src').includes('logo-social.png'), 'Configured detail icon is rendered from local asset');
     }
 
     // ----------------------------------------------------------

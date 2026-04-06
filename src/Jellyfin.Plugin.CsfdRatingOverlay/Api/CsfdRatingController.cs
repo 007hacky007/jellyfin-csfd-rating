@@ -28,7 +28,13 @@ public class CsfdRatingController : ControllerBase
     public IActionResult GetClientConfig()
     {
         var config = Plugin.Instance.Configuration;
-        return Ok(new { clientCacheVersion = config.ClientCacheVersion, overlayDetailEnabled = config.OverlayDetailEnabled });
+        return Ok(new
+        {
+            clientCacheVersion = config.ClientCacheVersion,
+            overlayDetailEnabled = config.OverlayDetailEnabled,
+            overlayPosterEnabled = config.OverlayPosterEnabled,
+            detailIconStyle = config.DetailIconStyle.ToString()
+        });
     }
 
     [HttpGet("csfd/items/{itemId}")]
@@ -169,6 +175,34 @@ public class CsfdRatingController : ControllerBase
         using var reader = new StreamReader(stream);
         var content = reader.ReadToEnd();
         return Content(content, "application/javascript");
+    }
+
+    [HttpGet("web/assets/{assetName}")]
+    [AllowAnonymous]
+    public IActionResult GetWebAsset(string assetName)
+    {
+        var resourceName = assetName switch
+        {
+            "logo-social.png" => "Jellyfin.Plugin.CsfdRatingOverlay.Web.Assets.logo-social.png",
+            "logo-white-red-small.png" => "Jellyfin.Plugin.CsfdRatingOverlay.Web.Assets.logo-white-red-small.png",
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrEmpty(resourceName))
+        {
+            return NotFound();
+        }
+
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+        {
+            return NotFound();
+        }
+
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return File(memory.ToArray(), "image/png");
     }
 
     [HttpPost("csfd/actions/pause")]
