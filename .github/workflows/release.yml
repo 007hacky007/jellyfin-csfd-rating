@@ -73,7 +73,10 @@ jobs:
           echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
 
       - name: Restore
-        run: dotnet restore $PROJECT_PATH
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test --no-restore --verbosity normal
 
       - name: Publish net8.0
         run: dotnet publish $PROJECT_PATH -c Release -f net8.0 -o ./artifacts/publish_net8 /p:Version=$VERSION
