@@ -32,7 +32,7 @@ public class CsfdMovieMetadataProvider : ICustomMetadataProvider<Movie>
             return ItemUpdateType.None;
         }
 
-        var entry = await _cacheStore.GetAsync(item.Id.ToString("N"), cancellationToken).ConfigureAwait(false);
+        var entry = await _cacheStore.GetAsync(item.Id.ToString(), cancellationToken).ConfigureAwait(false);
         if (entry is null)
         {
             return ItemUpdateType.None;

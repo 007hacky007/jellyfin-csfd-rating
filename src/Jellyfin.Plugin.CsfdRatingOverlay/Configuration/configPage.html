@@ -206,6 +206,7 @@
                 loadConfiguration: function () {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        CsfdRatingOverlayConfig.pluginConfig = config;
                         document.querySelector('#chkEnabled').checked = config.Enabled;
                         document.querySelector('#chkOverlayInjectionEnabled').checked = config.OverlayInjectionEnabled;
                         document.querySelector('#chkOverlayDetailEnabled').checked = config.OverlayDetailEnabled;
@@ -222,6 +223,7 @@
                 saveConfiguration: function () {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        CsfdRatingOverlayConfig.pluginConfig = config;
                         config.Enabled = document.querySelector('#chkEnabled').checked;
                         config.OverlayInjectionEnabled = document.querySelector('#chkOverlayInjectionEnabled').checked;
                         config.OverlayDetailEnabled = document.querySelector('#chkOverlayDetailEnabled').checked;
@@ -387,6 +389,8 @@
                         CsfdRatingOverlayConfig.closeMatch();
                         CsfdRatingOverlayConfig.loadUnmatched();
                         CsfdRatingOverlayConfig.loadStatus();
+                        CsfdRatingOverlayConfig.loadConfiguration();
+                        Dashboard.alert('Match saved. Reload open Jellyfin pages to fetch the updated CSFD badge.');
                     }, function(err) {
                         Dashboard.hideLoadingMsg();
                         Dashboard.alert('Match failed: ' + err);
@@ -531,7 +535,9 @@
                             try { details = JSON.parse(details); } catch (e) {}
                         }
                         CsfdRatingOverlayConfig.renderCacheEntry(details);
-                        Dashboard.alert('Cache entry updated.');
+                        CsfdRatingOverlayConfig.loadStatus();
+                        CsfdRatingOverlayConfig.loadConfiguration();
+                        Dashboard.alert('Cache entry updated. Reload open Jellyfin pages to fetch the updated CSFD badge.');
                     }, function (err) {
                         Dashboard.hideLoadingMsg();
                         Dashboard.alert('Override failed: ' + err);
@@ -593,11 +599,15 @@
 
             document.querySelector('#btnInvalidateClientCache').addEventListener('click', function () {
                 if (confirm('This will force all clients to clear their local cache and re-fetch ratings. Continue?')) {
-                    var config = CsfdRatingOverlayConfig.pluginConfig;
-                    config.ClientCacheVersion = Date.now();
-                    ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
+                    ApiClient.getPluginConfiguration(CsfdRatingOverlayConfig.pluginId).then(function (config) {
+                        CsfdRatingOverlayConfig.pluginConfig = config;
+                        config.ClientCacheVersion = Date.now();
+                        return ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config);
+                    }).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                         Dashboard.alert('Client cache invalidated.');
+                    }, function () {
+                        Dashboard.alert('Failed to invalidate client cache.');
                     });
                 }
             });

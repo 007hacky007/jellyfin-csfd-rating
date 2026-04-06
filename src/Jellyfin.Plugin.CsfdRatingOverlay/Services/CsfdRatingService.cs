@@ -41,17 +41,18 @@ public class CsfdRatingService
 
     public async Task<CsfdRatingData> GetAsync(string itemId, bool enqueueIfMissing, CancellationToken cancellationToken)
     {
-        var entry = await _cacheStore.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var normalizedItemId = NormalizeItemId(itemId);
+        var entry = await _cacheStore.GetAsync(normalizedItemId, cancellationToken).ConfigureAwait(false);
         if (entry == null)
         {
             if (enqueueIfMissing)
             {
-                Enqueue(itemId, false, null);
+                Enqueue(normalizedItemId, false, null);
             }
 
             return new CsfdRatingData
             {
-                ItemId = itemId,
+                ItemId = normalizedItemId,
                 Status = CsfdCacheEntryStatus.Unknown
             };
         }
@@ -62,11 +63,15 @@ public class CsfdRatingService
     public async Task<IReadOnlyDictionary<string, CsfdRatingData>> GetBatchAsync(IEnumerable<string> itemIds, bool enqueueIfMissing, CancellationToken cancellationToken)
     {
         var list = itemIds.ToArray();
-        var map = await _cacheStore.GetManyAsync(list, cancellationToken).ConfigureAwait(false);
+        var normalizedIds = list.Select(NormalizeItemId).ToArray();
+        var map = await _cacheStore.GetManyAsync(normalizedIds, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<string, CsfdRatingData>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in list)
+        for (var i = 0; i < list.Length; i++)
         {
-            if (map.TryGetValue(id, out var entry))
+            var id = list[i];
+            var normalizedId = normalizedIds[i];
+
+            if (map.TryGetValue(normalizedId, out var entry))
             {
                 result[id] = Map(entry);
                 continue;
@@ -74,10 +79,10 @@ public class CsfdRatingService
 
             if (enqueueIfMissing)
             {
-                Enqueue(id, false, null);
+                Enqueue(normalizedId, false, null);
             }
 
-            result[id] = new CsfdRatingData { ItemId = id, Status = CsfdCacheEntryStatus.Unknown };
+            result[id] = new CsfdRatingData { ItemId = normalizedId, Status = CsfdCacheEntryStatus.Unknown };
         }
 
         return result;
@@ -87,7 +92,7 @@ public class CsfdRatingService
     {
         _queue.Enqueue(new CsfdFetchRequest
         {
-            ItemId = itemId,
+            ItemId = NormalizeItemId(itemId),
             Force = force,
             Fingerprint = fingerprint,
             Attempt = 0
@@ -138,10 +143,11 @@ public class CsfdRatingService
         foreach (var item in items)
         {
             var fingerprint = MetadataFingerprint.Compute(item);
-            var entry = await _cacheStore.GetAsync(item.Id.ToString(), cancellationToken).ConfigureAwait(false);
+            var itemId = NormalizeItemId(item.Id.ToString());
+            var entry = await _cacheStore.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
             if (ShouldQueue(item, entry, fingerprint, now))
             {
-                Enqueue(item.Id.ToString(), false, fingerprint);
+                Enqueue(itemId, false, fingerprint);
                 enqueued++;
             }
         }
@@ -195,7 +201,7 @@ public class CsfdRatingService
 
         if (Guid.TryParse(normalizedTerm, out var guid))
         {
-            entry = await _cacheStore.GetAsync(guid.ToString(), cancellationToken).ConfigureAwait(false);
+            entry = await _cacheStore.GetAsync(NormalizeItemId(guid.ToString()), cancellationToken).ConfigureAwait(false);
         }
 
         if (entry == null)
@@ -301,7 +307,7 @@ public class CsfdRatingService
 
         if (targetItemId == null && Guid.TryParse(itemIdOrTerm, out var parsedGuid))
         {
-            targetItemId = parsedGuid.ToString();
+            targetItemId = NormalizeItemId(parsedGuid.ToString());
         }
 
         if (targetItemId == null)
@@ -346,6 +352,8 @@ public class CsfdRatingService
         cacheEntry.QueryUsed = queryUsed ?? cacheEntry.QueryUsed;
 
         await _cacheStore.UpsertAsync(cacheEntry, cancellationToken).ConfigureAwait(false);
+        await PersistLibraryMetadataAsync(libraryItem, cacheEntry, cancellationToken).ConfigureAwait(false);
+        InvalidateClientCacheVersion();
         return cacheEntry;
     }
 
@@ -376,9 +384,11 @@ public class CsfdRatingService
             }
         }
 
+        var normalizedItemId = NormalizeItemId(itemId);
+
         var entry = new CsfdCacheEntry
         {
-            ItemId = itemId,
+            ItemId = normalizedItemId,
             Status = CsfdCacheEntryStatus.Resolved,
             CsfdId = csfdId,
             Percent = percent,
@@ -395,6 +405,13 @@ public class CsfdRatingService
         };
 
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        if (Guid.TryParse(normalizedItemId, out var normalizedGuid))
+        {
+            var item = _libraryManager.GetItemById(normalizedGuid);
+            await PersistLibraryMetadataAsync(item, entry, cancellationToken).ConfigureAwait(false);
+        }
+
+        InvalidateClientCacheVersion();
     }
 
     private bool ShouldQueue(BaseItem item, CsfdCacheEntry? entry, string fingerprint, DateTimeOffset now)
@@ -423,6 +440,57 @@ public class CsfdRatingService
         DisplayText = entry.DisplayText,
         CsfdId = entry.CsfdId
     };
+
+    private static string NormalizeItemId(string itemId)
+    {
+        if (Guid.TryParse(itemId, out var guid))
+        {
+            return guid.ToString();
+        }
+
+        return itemId;
+    }
+
+    private async Task PersistLibraryMetadataAsync(BaseItem? item, CsfdCacheEntry entry, CancellationToken cancellationToken)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(entry.CsfdId)
+            && (!item.ProviderIds.TryGetValue("Csfd", out var existingCsfdId) || !string.Equals(existingCsfdId, entry.CsfdId, StringComparison.Ordinal)))
+        {
+            item.ProviderIds["Csfd"] = entry.CsfdId;
+            changed = true;
+        }
+
+        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        if (config.NativeRatingTarget != Configuration.NativeRatingTarget.None)
+        {
+            changed = Providers.CsfdNativeRatingHelper.ApplyRating(item, entry, config.NativeRatingTarget, _logger) || changed;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void InvalidateClientCacheVersion()
+    {
+        var plugin = Plugin.Instance;
+        if (plugin is null)
+        {
+            return;
+        }
+
+        plugin.Configuration.ClientCacheVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        plugin.UpdateConfiguration(plugin.Configuration);
+    }
 
     private (string? Title, int? Year) TryGetLibraryInfo(string itemId)
     {
