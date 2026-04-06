@@ -6,6 +6,8 @@ public class CsfdCandidate
 
     public required string Title { get; init; }
 
+    public string? OriginalName { get; init; }
+
     public int? Year { get; init; }
 
     public bool IsSeries { get; init; }

@@ -15,7 +15,10 @@ public static class CandidateSelector
         foreach (var candidate in candidates)
         {
             var normalizedCandidate = MetadataFingerprint.Normalize(candidate.Title);
-            var similarity = Math.Max(ComputeSimilarity(normalizedPrimary, normalizedCandidate), ComputeSimilarity(normalizedOriginal, normalizedCandidate));
+            var normalizedCandidateOriginal = MetadataFingerprint.Normalize(candidate.OriginalName ?? string.Empty);
+            var similarity = Math.Max(
+                Math.Max(ComputeSimilarity(normalizedPrimary, normalizedCandidate), ComputeSimilarity(normalizedOriginal, normalizedCandidate)),
+                Math.Max(ComputeSimilarity(normalizedPrimary, normalizedCandidateOriginal), ComputeSimilarity(normalizedOriginal, normalizedCandidateOriginal)));
             var score = similarity;
 
             if (year.HasValue && candidate.Year.HasValue)

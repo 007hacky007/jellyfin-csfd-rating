@@ -9,10 +9,12 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Client;
 
 public class CsfdClient
 {
-    // Updated regex to target the specific title link in search results to avoid matching image links
-    // Looking for: <h3 class="film-title-nooverflow">...<a href="/film/ID-TITLE/prehled/" ...>TITLE</a>...</h3>
+    // Captures title link inside <h3> and the following <p class="search-name"> if present
     private static readonly Regex CandidateRegex = new Regex(
-        @"<h3\s+class=""film-title-nooverflow"">.*?<a\s+href=""/film/(?<id>\d+)-[^""]*""[^>]*>(?<title>[^<]*)</a>(?<rest>.*?)</h3>",
+        @"<h3\s+class=""film-title-nooverflow"">.*?<a\s+href=""/film/(?<id>\d+)-[^""]*""[^>]*>(?<title>[^<]*)</a>(?<rest>.*?)</h3>(?<after>.*?(?=<h3|<section|$))",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex SearchNameRegex = new Regex(
+        @"<p\s+class=""search-name"">\s*\((?<name>[^)]*)\)",
         RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex YearRegex = new(@"(?<year>(?:19|20)\d{2})", RegexOptions.Compiled);
     // Updated regex to be more robust against HTML changes and attributes
@@ -189,10 +191,19 @@ public class CsfdClient
 
             var isSeries = rest.Contains("(seriál)", StringComparison.OrdinalIgnoreCase) || rest.Contains("TV seriál", StringComparison.OrdinalIgnoreCase);
 
+            string? originalName = null;
+            var after = match.Groups["after"].Value;
+            var searchNameMatch = SearchNameRegex.Match(after);
+            if (searchNameMatch.Success)
+            {
+                originalName = WebUtility.HtmlDecode(searchNameMatch.Groups["name"].Value).Trim();
+            }
+
             list.Add(new CsfdCandidate
             {
                 CsfdId = id,
                 Title = title,
+                OriginalName = originalName,
                 Year = year,
                 IsSeries = isSeries,
                 Score = 0
