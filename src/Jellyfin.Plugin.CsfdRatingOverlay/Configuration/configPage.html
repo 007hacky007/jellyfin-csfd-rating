@@ -118,6 +118,10 @@
                             <span id="statResolved" style="font-weight: bold; color: #4caf50;">-</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
+                            <span>Awaiting Rating:</span>
+                            <span id="statNoRating" style="font-weight: bold; color: #2196f3;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
                             <span>Not Found:</span>
                             <span id="statNotFound" style="font-weight: bold; color: #ff9800;">-</span>
                         </div>
@@ -154,6 +158,9 @@
                         </button>
                         <button is="emby-button" type="button" class="raised" id="btnRetryErrors">
                             <span>Retry Errors</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRetryNoRating">
+                            <span>Retry Awaiting Rating</span>
                         </button>
                         <button is="emby-button" type="button" class="raised" id="btnResetCache">
                             <span>Reset Cache</span>
@@ -288,6 +295,7 @@
                         document.querySelector('#statLibraryTotal').textContent = status.TotalLibraryItems;
                         document.querySelector('#statTotal').textContent = status.CacheStats.TotalEntries;
                         document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
+                        document.querySelector('#statNoRating').textContent = status.CacheStats.ResolvedNoRating || 0;
                         document.querySelector('#statNotFound').textContent = status.CacheStats.NotFound;
                         document.querySelector('#statErrors').textContent = status.CacheStats.Errors;
 
@@ -650,7 +658,11 @@
             document.querySelector('#btnRetryErrors').addEventListener('click', function () {
                 CsfdRatingOverlayConfig.runAction('retry-errors');
             });
-            
+
+            document.querySelector('#btnRetryNoRating').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.runAction('retry-norating');
+            });
+
             document.querySelector('#btnResetCache').addEventListener('click', function () {
                 if (confirm('Are you sure you want to clear the entire cache? This will force re-fetching of all ratings.')) {
                     CsfdRatingOverlayConfig.runAction('reset-cache');

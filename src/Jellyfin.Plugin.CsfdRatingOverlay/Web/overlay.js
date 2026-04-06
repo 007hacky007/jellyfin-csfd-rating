@@ -450,12 +450,13 @@
 
       const iconUrl = getDetailIconUrl();
       const rawStatus = (data && (data.status ?? data.Status ?? '').toString().toLowerCase()) || '';
+      const isKnown = rawStatus === 'resolved' || rawStatus === '1' || rawStatus === 'resolvednorating' || rawStatus === '5';
       const starsValue = data && (typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null);
-      const text = !data || (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1')
+      const text = !data || !isKnown
           ? (iconUrl ? '- ⭐️' : 'CSFD: - ⭐️')
           : (starsValue !== null
               ? (iconUrl ? `${starsValue.toFixed(1)}` : `CSFD: ⭐️ ${starsValue.toFixed(1)}`)
-              : (iconUrl ? '- ⭐️' : 'CSFD: - ⭐️'));
+              : (iconUrl ? '-' : 'CSFD: -'));
 
       container.textContent = '';
       if (iconUrl) {
@@ -563,7 +564,8 @@
     }
 
     const rawStatus = (data.status ?? data.Status ?? '').toString().toLowerCase();
-    if (rawStatus && rawStatus !== 'resolved' && rawStatus !== '1') {
+    const isKnown = rawStatus === 'resolved' || rawStatus === '1' || rawStatus === 'resolvednorating' || rawStatus === '5';
+    if (rawStatus && !isKnown) {
       renderPlaceholder(el);
       return;
     }
@@ -571,6 +573,11 @@
     const starsValue = typeof data.stars === 'number' ? data.stars : typeof data.Stars === 'number' ? data.Stars : null;
     const text = data.displayText || data.DisplayText || (starsValue !== null ? `${starsValue.toFixed(1)} ⭐️` : null);
     if (!text) {
+      // ResolvedNoRating - show dash instead of placeholder
+      if (isKnown) {
+        setBadge(el, '- ⭐️', false);
+        return;
+      }
       renderPlaceholder(el);
       return;
     }

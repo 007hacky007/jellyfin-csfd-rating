@@ -114,12 +114,91 @@ public class CsfdRatingServiceTests
         return appPaths;
     }
 
+    [Fact]
+    public async Task ManualMatchAsync_NoRating_SavesResolvedNoRatingWithCsfdId()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                NativeRatingTarget = NativeRatingTarget.Both,
+                ClientCacheVersion = 0
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Unreleased Movie",
+                ProductionYear = 2027,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var client = CreateClientReturningNoRating();
+
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                client,
+                NullLogger<CsfdRatingService>.Instance);
+
+            await sut.ManualMatchAsync(itemId.ToString("N"), "999999", CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.NotNull(entry);
+            Assert.Equal(CsfdCacheEntryStatus.ResolvedNoRating, entry!.Status);
+            Assert.Equal("999999", entry.CsfdId);
+            Assert.Null(entry.Percent);
+            Assert.Null(entry.Stars);
+            Assert.Null(entry.DisplayText);
+            Assert.NotNull(entry.RetryAfterUtc);
+            Assert.True(movie.UpdateCalled);
+            Assert.Equal("999999", movie.ProviderIds["Csfd"]);
+            Assert.Null(movie.CommunityRating);
+            Assert.Null(movie.CriticRating);
+            Assert.True(plugin.Configuration.ClientCacheVersion > 0);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static CsfdClient CreateClientReturningPercent(int percent)
     {
         var handler = new StaticResponseHandler($"""
             <html>
               <body>
                 <div class="film-rating-average">{percent}%</div>
+              </body>
+            </html>
+            """);
+
+        return new CsfdClient(
+            new HttpClient(handler),
+            new DebugLogger(),
+            NullLogger<CsfdClient>.Instance,
+            new AnubisChallengeSolver(NullLogger<AnubisChallengeSolver>.Instance));
+    }
+
+    private static CsfdClient CreateClientReturningNoRating()
+    {
+        var handler = new StaticResponseHandler("""
+            <html>
+              <body>
+                <div class="film-header">Movie page with no rating</div>
               </body>
             </html>
             """);

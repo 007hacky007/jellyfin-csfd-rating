@@ -184,6 +184,20 @@ public class CsfdRatingService
         return count;
     }
 
+    public async Task<int> RetryNoRatingAsync(CancellationToken cancellationToken)
+    {
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var count = 0;
+        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ResolvedNoRating))
+        {
+            Enqueue(entry.ItemId, true, entry.Fingerprint);
+            count++;
+        }
+
+        _logger.LogInformation("Retrying {Count} no-rating entries", count);
+        return count;
+    }
+
     public Task ClearCacheAsync(CancellationToken cancellationToken)
     {
         return _cacheStore.ClearAllAsync(cancellationToken);
@@ -253,7 +267,7 @@ public class CsfdRatingService
             
             if (cacheMap.TryGetValue(itemId, out var entry))
             {
-                if (entry.Status == CsfdCacheEntryStatus.Resolved)
+                if (entry.Status is CsfdCacheEntryStatus.Resolved or CsfdCacheEntryStatus.ResolvedNoRating)
                 {
                     continue;
                 }
@@ -321,9 +335,10 @@ public class CsfdRatingService
             throw new Exception(ratingResult.Error ?? "Failed to fetch rating");
         }
 
+        var hasRating = ratingResult.Payload is not null;
         var percent = ratingResult.Payload;
-        var stars = percent / 10.0;
-        var display = stars.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️";
+        var stars = hasRating ? percent!.Value / 10.0 : (double?)null;
+        var display = hasRating ? stars!.Value.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️" : null;
 
         BaseItem? libraryItem = null;
         if (Guid.TryParse(targetItemId, out var libraryGuid))
@@ -337,7 +352,7 @@ public class CsfdRatingService
             CreatedUtc = DateTimeOffset.UtcNow
         };
 
-        cacheEntry.Status = CsfdCacheEntryStatus.Resolved;
+        cacheEntry.Status = hasRating ? CsfdCacheEntryStatus.Resolved : CsfdCacheEntryStatus.ResolvedNoRating;
         cacheEntry.CsfdId = csfdId;
         cacheEntry.Percent = percent;
         cacheEntry.Stars = stars;
@@ -348,7 +363,7 @@ public class CsfdRatingService
         cacheEntry.AttemptedUtc = DateTimeOffset.UtcNow;
         cacheEntry.AttemptCount = entryDetails?.Entry.AttemptCount ?? 0;
         cacheEntry.LastError = null;
-        cacheEntry.RetryAfterUtc = null;
+        cacheEntry.RetryAfterUtc = hasRating ? null : DateTimeOffset.UtcNow + TimeSpan.FromHours(24);
         cacheEntry.QueryUsed = queryUsed ?? cacheEntry.QueryUsed;
 
         await _cacheStore.UpsertAsync(cacheEntry, cancellationToken).ConfigureAwait(false);
@@ -365,9 +380,10 @@ public class CsfdRatingService
             throw new Exception(ratingResult.Error ?? "Failed to fetch rating");
         }
 
+        var hasRating = ratingResult.Payload is not null;
         var percent = ratingResult.Payload;
-        var stars = percent / 10.0;
-        var display = stars.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️";
+        var stars = hasRating ? percent!.Value / 10.0 : (double?)null;
+        var display = hasRating ? stars!.Value.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️" : null;
 
         string? fingerprint = null;
         string? matchedTitle = null;
@@ -389,7 +405,7 @@ public class CsfdRatingService
         var entry = new CsfdCacheEntry
         {
             ItemId = normalizedItemId,
-            Status = CsfdCacheEntryStatus.Resolved,
+            Status = hasRating ? CsfdCacheEntryStatus.Resolved : CsfdCacheEntryStatus.ResolvedNoRating,
             CsfdId = csfdId,
             Percent = percent,
             Stars = stars,
@@ -401,16 +417,16 @@ public class CsfdRatingService
             Fingerprint = fingerprint,
             AttemptCount = 0,
             LastError = null,
-            RetryAfterUtc = null
+            RetryAfterUtc = hasRating ? null : DateTimeOffset.UtcNow + TimeSpan.FromHours(24)
         };
 
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("ManualMatch: cache upserted for {ItemId}, CsfdId={CsfdId}", normalizedItemId, csfdId);
+        _logger.LogDebug("ManualMatch: cache upserted for {ItemId}, CsfdId={CsfdId}, HasRating={HasRating}", normalizedItemId, csfdId, hasRating);
 
         if (Guid.TryParse(normalizedItemId, out var normalizedGuid))
         {
             var item = _libraryManager.GetItemById(normalizedGuid);
-            _logger.LogInformation("ManualMatch: GetItemById({Guid}) returned {Result}", normalizedGuid, item is null ? "null" : item.Name);
+            _logger.LogDebug("ManualMatch: GetItemById({Guid}) returned {Result}", normalizedGuid, item is null ? "null" : item.Name);
             await PersistLibraryMetadataAsync(item, entry, cancellationToken).ConfigureAwait(false);
         }
         else
@@ -434,6 +450,7 @@ public class CsfdRatingService
             CsfdCacheEntryStatus.NotFound => !string.Equals(entry.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase),
             CsfdCacheEntryStatus.ErrorPermanent => false,
             CsfdCacheEntryStatus.ErrorTransient => !entry.RetryAfterUtc.HasValue || entry.RetryAfterUtc.Value <= now,
+            CsfdCacheEntryStatus.ResolvedNoRating => !entry.RetryAfterUtc.HasValue || entry.RetryAfterUtc.Value <= now,
             _ => true
         };
     }

@@ -65,6 +65,9 @@ public class FileCsfdCacheStore : ICsfdCacheStore, IDisposable
                 case CsfdCacheEntryStatus.Resolved:
                     stats.Resolved++;
                     break;
+                case CsfdCacheEntryStatus.ResolvedNoRating:
+                    stats.ResolvedNoRating++;
+                    break;
                 case CsfdCacheEntryStatus.NotFound:
                     stats.NotFound++;
                     break;

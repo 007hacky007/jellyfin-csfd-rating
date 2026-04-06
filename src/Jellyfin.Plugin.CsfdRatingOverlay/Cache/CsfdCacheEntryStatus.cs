@@ -6,5 +6,6 @@ public enum CsfdCacheEntryStatus
     Resolved = 1,
     NotFound = 2,
     ErrorTransient = 3,
-    ErrorPermanent = 4
+    ErrorPermanent = 4,
+    ResolvedNoRating = 5
 }

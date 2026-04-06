@@ -70,8 +70,15 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         updatedEntry.AttemptedUtc = DateTimeOffset.UtcNow;
         updatedEntry.Fingerprint = fingerprint;
 
+        // If we already have a CsfdId (from a previous ResolvedNoRating or manual match),
+        // skip search and go directly to rating fetch - saves one CSFD request
+        if (!string.IsNullOrEmpty(updatedEntry.CsfdId))
+        {
+            return await FetchRatingForKnownIdAsync(updatedEntry, config, cancellationToken).ConfigureAwait(false);
+        }
+
         var queryTitle = !string.IsNullOrWhiteSpace(item.OriginalTitle) ? item.OriginalTitle! : item.Name ?? string.Empty;
-        
+
         var searchQuery = queryTitle;
         if (item.ProductionYear.HasValue)
         {
@@ -103,57 +110,70 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         if (candidate == null)
         {
             _debugLogger.LogFailure(
-                $"Match:{item.Name}", 
-                "No matching candidate found", 
-                $"Search: {searchQuery}", 
-                null, 
-                new { 
-                    Query = searchQuery, 
-                    OriginalTitle = item.OriginalTitle, 
-                    Year = item.ProductionYear, 
-                    IsSeries = isSeries, 
-                    Candidates = searchResult.Payload 
+                $"Match:{item.Name}",
+                "No matching candidate found",
+                $"Search: {searchQuery}",
+                null,
+                new {
+                    Query = searchQuery,
+                    OriginalTitle = item.OriginalTitle,
+                    Year = item.ProductionYear,
+                    IsSeries = isSeries,
+                    Candidates = searchResult.Payload
                 });
 
             await MarkNotFoundAsync(updatedEntry, searchQuery, cancellationToken).ConfigureAwait(false);
             return FetchWorkResult.Success;
         }
 
-        CsfdClientResult<int> ratingResult;
+        updatedEntry.CsfdId = candidate.CsfdId;
+        updatedEntry.MatchedTitle = candidate.Title;
+        updatedEntry.MatchedYear = candidate.Year;
+
+        return await FetchRatingForKnownIdAsync(updatedEntry, config, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<FetchWorkResult> FetchRatingForKnownIdAsync(CsfdCacheEntry entry, Configuration.PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        CsfdClientResult<int?> ratingResult;
         await using (await _rateLimiter.WaitAsync(cancellationToken).ConfigureAwait(false))
         {
-            ratingResult = await _csfdClient.GetRatingPercentAsync(candidate.CsfdId, cancellationToken).ConfigureAwait(false);
+            ratingResult = await _csfdClient.GetRatingPercentAsync(entry.CsfdId!, cancellationToken).ConfigureAwait(false);
         }
+
         if (ratingResult.Throttled)
         {
-            _logger.LogWarning("CSFD details throttled for {Candidate}", candidate.CsfdId);
+            _logger.LogWarning("CSFD details throttled for {CsfdId}", entry.CsfdId);
             _rateLimiter.RegisterThrottleSignal(ratingResult.RetryAfter);
             return FetchWorkResult.Throttled(ratingResult.RetryAfter, ratingResult.Error);
         }
 
         if (!ratingResult.Success)
         {
-            await MarkTransientAsync(updatedEntry, config, ratingResult.Error ?? "Rating fetch failed", cancellationToken).ConfigureAwait(false);
+            await MarkTransientAsync(entry, config, ratingResult.Error ?? "Rating fetch failed", cancellationToken).ConfigureAwait(false);
             return FetchWorkResult.Transient(ratingResult.Error);
         }
 
-        var percent = ratingResult.Payload;
+        if (ratingResult.Payload is null)
+        {
+            await MarkNoRatingAsync(entry, cancellationToken).ConfigureAwait(false);
+            return FetchWorkResult.Success;
+        }
+
+        var percent = ratingResult.Payload.Value;
         var stars = percent / 10.0;
         var display = stars.ToString("0.0", CultureInfo.InvariantCulture) + " ⭐️";
 
-        updatedEntry.Status = CsfdCacheEntryStatus.Resolved;
-        updatedEntry.CsfdId = candidate.CsfdId;
-        updatedEntry.Percent = percent;
-        updatedEntry.Stars = stars;
-        updatedEntry.DisplayText = display;
-        updatedEntry.MatchedTitle = candidate.Title;
-        updatedEntry.MatchedYear = candidate.Year;
-        updatedEntry.RatingCount = null;
-        updatedEntry.LastError = null;
-        updatedEntry.RetryAfterUtc = null;
+        entry.Status = CsfdCacheEntryStatus.Resolved;
+        entry.Percent = percent;
+        entry.Stars = stars;
+        entry.DisplayText = display;
+        entry.RatingCount = null;
+        entry.LastError = null;
+        entry.RetryAfterUtc = null;
 
-        await _cacheStore.UpsertAsync(updatedEntry, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("Cached CSFD rating for {ItemId} as {Display}", request.ItemId, display);
+        await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Cached CSFD rating for {ItemId} as {Display}", entry.ItemId, display);
         return FetchWorkResult.Success;
     }
 
@@ -180,6 +200,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
             CsfdCacheEntryStatus.NotFound => !string.Equals(entry.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase),
             CsfdCacheEntryStatus.ErrorPermanent => false,
             CsfdCacheEntryStatus.ErrorTransient => !entry.RetryAfterUtc.HasValue || entry.RetryAfterUtc.Value <= DateTimeOffset.UtcNow,
+            CsfdCacheEntryStatus.ResolvedNoRating => !entry.RetryAfterUtc.HasValue || entry.RetryAfterUtc.Value <= DateTimeOffset.UtcNow,
             _ => true
         };
     }
@@ -192,6 +213,18 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         entry.RetryAfterUtc = null;
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("CSFD not found for {ItemId}; cached negative result", entry.ItemId);
+    }
+
+    private async Task MarkNoRatingAsync(CsfdCacheEntry entry, CancellationToken cancellationToken)
+    {
+        entry.Status = CsfdCacheEntryStatus.ResolvedNoRating;
+        entry.Percent = null;
+        entry.Stars = null;
+        entry.DisplayText = null;
+        entry.LastError = null;
+        entry.RetryAfterUtc = DateTimeOffset.UtcNow + TimeSpan.FromHours(24);
+        await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("CSFD page found but no rating for {ItemId} (CsfdId={CsfdId}); will retry after 24h", entry.ItemId, entry.CsfdId);
     }
 
     private async Task MarkTransientAsync(CsfdCacheEntry entry, Configuration.PluginConfiguration config, string error, CancellationToken cancellationToken)

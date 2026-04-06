@@ -4,6 +4,7 @@ public class CsfdCacheStats
 {
     public int TotalEntries { get; set; }
     public int Resolved { get; set; }
+    public int ResolvedNoRating { get; set; }
     public int NotFound { get; set; }
     public int Errors { get; set; }
 }

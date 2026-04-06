@@ -66,7 +66,7 @@ public class CsfdClient
         return CsfdClientResult<IReadOnlyList<CsfdCandidate>>.Ok(candidates);
     }
 
-    public async Task<CsfdClientResult<int>> GetRatingPercentAsync(string csfdId, CancellationToken cancellationToken)
+    public async Task<CsfdClientResult<int?>> GetRatingPercentAsync(string csfdId, CancellationToken cancellationToken)
     {
         // Append /prehled/ to match standard browser behavior and node-csfd-api
         var url = $"https://www.csfd.cz/film/{csfdId}/prehled/";
@@ -74,44 +74,42 @@ public class CsfdClient
         var (html, throttleResult) = await FetchHtmlAsync(url, cancellationToken).ConfigureAwait(false);
         if (throttleResult is not null)
         {
-            return CsfdClientResult<int>.Throttle(throttleResult.Value.RetryAfter, throttleResult.Value.Error);
+            return CsfdClientResult<int?>.Throttle(throttleResult.Value.RetryAfter, throttleResult.Value.Error);
         }
 
         if (html is null)
         {
             _debugLogger.LogFailure($"Rating:{csfdId}", "Failed to fetch (Anubis or HTTP error)", url, null);
-            return CsfdClientResult<int>.Fail("Failed to fetch rating page");
+            return CsfdClientResult<int?>.Fail("Failed to fetch rating page");
         }
 
         if (html.Contains("g-recaptcha") || html.Contains("Jste robot?"))
         {
              _logger.LogError("CSFD returned captcha/bot check for {Url}", url);
              _debugLogger.LogFailure($"Rating:{csfdId}", "Captcha detected", url, html);
-             return CsfdClientResult<int>.Fail("Captcha detected");
+             return CsfdClientResult<int?>.Fail("Captcha detected");
         }
 
         var percent = ParsePercent(html);
         if (percent is null)
         {
-            _logger.LogError("Failed to parse rating percent for {Url}. HTML length: {Length}", url, html.Length);
-            _debugLogger.LogFailure($"Rating:{csfdId}", "Rating percent not found", url, html);
-
-            var idx = html.IndexOf("film-rating-average");
+            var idx = html.IndexOf("film-rating-average", StringComparison.Ordinal);
             if (idx >= 0)
             {
+                 // The element exists but we couldn't parse the percentage - likely a regex/HTML change
                  var start = Math.Max(0, idx - 100);
                  var len = Math.Min(html.Length - start, 500);
-                 _logger.LogError("Context around 'film-rating-average': {Context}", html.Substring(start, len));
-            }
-            else
-            {
-                _logger.LogError("String 'film-rating-average' not found in HTML. Snippet: {Snippet}", html.Length > 500 ? html.Substring(0, 500) : html);
+                 _logger.LogError("Failed to parse rating percent for {Url}. Context: {Context}", url, html.Substring(start, len));
+                 _debugLogger.LogFailure($"Rating:{csfdId}", "Rating percent parse error", url, html);
+                 return CsfdClientResult<int?>.Fail("Rating percent parse error");
             }
 
-            return CsfdClientResult<int>.Fail("Rating percent not found");
+            // Page loaded fine but has no rating element - movie exists but is unrated
+            _logger.LogInformation("CSFD page has no rating for {CsfdId}", csfdId);
+            return CsfdClientResult<int?>.Ok(null);
         }
 
-        return CsfdClientResult<int>.Ok(percent.Value);
+        return CsfdClientResult<int?>.Ok(percent.Value);
     }
 
     /// <summary>
