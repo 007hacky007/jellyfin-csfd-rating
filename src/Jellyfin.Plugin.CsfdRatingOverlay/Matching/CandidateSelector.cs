@@ -45,6 +45,7 @@ public static class CandidateSelector
                 {
                     CsfdId = candidate.CsfdId,
                     Title = candidate.Title,
+                    OriginalName = candidate.OriginalName,
                     Year = candidate.Year,
                     IsSeries = candidate.IsSeries,
                     Score = score
