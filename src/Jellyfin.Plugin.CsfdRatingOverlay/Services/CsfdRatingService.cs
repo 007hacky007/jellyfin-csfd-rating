@@ -483,28 +483,7 @@ public class CsfdRatingService
             return;
         }
 
-        var changed = false;
-        if (!string.IsNullOrWhiteSpace(entry.CsfdId)
-            && (!item.ProviderIds.TryGetValue("Csfd", out var existingCsfdId) || !string.Equals(existingCsfdId, entry.CsfdId, StringComparison.Ordinal)))
-        {
-            item.ProviderIds["Csfd"] = entry.CsfdId;
-            changed = true;
-        }
-
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
-        if (config.NativeRatingTarget != Configuration.NativeRatingTarget.None)
-        {
-            changed = Providers.CsfdNativeRatingHelper.ApplyRating(item, entry, config.NativeRatingTarget, _logger) || changed;
-        }
-
-        if (!changed)
-        {
-            _logger.LogDebug("PersistLibraryMetadata: no changes for {ItemName} (CsfdId={CsfdId})", item.Name, entry.CsfdId);
-            return;
-        }
-
-        _logger.LogInformation("PersistLibraryMetadata: saving {ItemName} with CsfdId={CsfdId}, NativeTarget={Target}", item.Name, entry.CsfdId, config.NativeRatingTarget);
-        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+        await Providers.CsfdNativeRatingHelper.PersistMetadataAsync(item, entry, _logger, cancellationToken).ConfigureAwait(false);
     }
 
     private static void InvalidateClientCacheVersion()

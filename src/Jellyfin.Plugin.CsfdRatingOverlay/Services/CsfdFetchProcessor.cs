@@ -3,6 +3,7 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Matching;
 using Jellyfin.Plugin.CsfdRatingOverlay.Models;
+using Jellyfin.Plugin.CsfdRatingOverlay.Providers;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -74,7 +75,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         // skip search and go directly to rating fetch - saves one CSFD request
         if (!string.IsNullOrEmpty(updatedEntry.CsfdId))
         {
-            return await FetchRatingForKnownIdAsync(updatedEntry, config, cancellationToken).ConfigureAwait(false);
+            return await FetchRatingForKnownIdAsync(updatedEntry, item, config, cancellationToken).ConfigureAwait(false);
         }
 
         var queryTitle = !string.IsNullOrWhiteSpace(item.OriginalTitle) ? item.OriginalTitle! : item.Name ?? string.Empty;
@@ -130,10 +131,10 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         updatedEntry.MatchedTitle = candidate.Title;
         updatedEntry.MatchedYear = candidate.Year;
 
-        return await FetchRatingForKnownIdAsync(updatedEntry, config, cancellationToken).ConfigureAwait(false);
+        return await FetchRatingForKnownIdAsync(updatedEntry, item, config, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<FetchWorkResult> FetchRatingForKnownIdAsync(CsfdCacheEntry entry, Configuration.PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<FetchWorkResult> FetchRatingForKnownIdAsync(CsfdCacheEntry entry, BaseItem item, Configuration.PluginConfiguration config, CancellationToken cancellationToken)
     {
         CsfdClientResult<int?> ratingResult;
         await using (await _rateLimiter.WaitAsync(cancellationToken).ConfigureAwait(false))
@@ -156,7 +157,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
         if (ratingResult.Payload is null)
         {
-            await MarkNoRatingAsync(entry, cancellationToken).ConfigureAwait(false);
+            await MarkNoRatingAsync(entry, item, cancellationToken).ConfigureAwait(false);
             return FetchWorkResult.Success;
         }
 
@@ -173,6 +174,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         entry.RetryAfterUtc = null;
 
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        await CsfdNativeRatingHelper.PersistMetadataAsync(item, entry, _logger, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Cached CSFD rating for {ItemId} as {Display}", entry.ItemId, display);
         return FetchWorkResult.Success;
     }
@@ -215,7 +217,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         _logger.LogInformation("CSFD not found for {ItemId}; cached negative result", entry.ItemId);
     }
 
-    private async Task MarkNoRatingAsync(CsfdCacheEntry entry, CancellationToken cancellationToken)
+    private async Task MarkNoRatingAsync(CsfdCacheEntry entry, BaseItem item, CancellationToken cancellationToken)
     {
         entry.Status = CsfdCacheEntryStatus.ResolvedNoRating;
         entry.Percent = null;
@@ -224,6 +226,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         entry.LastError = null;
         entry.RetryAfterUtc = DateTimeOffset.UtcNow + TimeSpan.FromHours(24);
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+        await CsfdNativeRatingHelper.PersistMetadataAsync(item, entry, _logger, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("CSFD page found but no rating for {ItemId} (CsfdId={CsfdId}); will retry after 24h", entry.ItemId, entry.CsfdId);
     }
 
