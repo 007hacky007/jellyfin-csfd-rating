@@ -77,6 +77,30 @@ public class CsfdRatingController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("csfd/review")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<IActionResult> GetReview([FromQuery] string statuses, [FromQuery] bool includeUncached = false, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(statuses))
+        {
+            return BadRequest("statuses required");
+        }
+
+        var parsedStatuses = new List<CsfdCacheEntryStatus>();
+        foreach (var rawStatus in statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!Enum.TryParse<CsfdCacheEntryStatus>(rawStatus, ignoreCase: true, out var status))
+            {
+                return BadRequest($"Invalid status: {rawStatus}");
+            }
+
+            parsedStatuses.Add(status);
+        }
+
+        var items = await _ratingService.GetReviewItemsAsync(parsedStatuses, includeUncached, cancellationToken);
+        return Ok(items);
+    }
+
     [HttpGet("csfd/cache/find")]
     [Authorize(Roles = "Administrator")]
     public async Task<IActionResult> FindCache([FromQuery] string term, CancellationToken cancellationToken)

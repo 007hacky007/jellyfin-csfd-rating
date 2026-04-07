@@ -248,10 +248,27 @@ public class CsfdRatingService
         };
     }
 
-    public async Task<IReadOnlyList<UnmatchedItem>> GetUnmatchedItemsAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ReviewItem>> GetUnmatchedItemsAsync(CancellationToken cancellationToken)
+    {
+        return GetReviewItemsAsync(
+            new[]
+            {
+                CsfdCacheEntryStatus.NotFound,
+                CsfdCacheEntryStatus.ErrorTransient,
+                CsfdCacheEntryStatus.ErrorPermanent
+            },
+            includeUncached: true,
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ReviewItem>> GetReviewItemsAsync(
+        IEnumerable<CsfdCacheEntryStatus> statuses,
+        bool includeUncached,
+        CancellationToken cancellationToken)
     {
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         var cacheMap = entries.ToDictionary(e => e.ItemId, StringComparer.OrdinalIgnoreCase);
+        var allowedStatuses = new HashSet<CsfdCacheEntryStatus>(statuses);
 
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -259,32 +276,36 @@ public class CsfdRatingService
             Recursive = true
         });
 
-        var result = new List<UnmatchedItem>();
+        var result = new List<ReviewItem>();
 
         foreach (var item in items)
         {
             var itemId = item.Id.ToString();
-            
+
             if (cacheMap.TryGetValue(itemId, out var entry))
             {
-                if (entry.Status is CsfdCacheEntryStatus.Resolved or CsfdCacheEntryStatus.ResolvedNoRating)
+                if (!allowedStatuses.Contains(entry.Status))
                 {
                     continue;
                 }
 
-                result.Add(new UnmatchedItem
+                result.Add(new ReviewItem
                 {
                     ItemId = itemId,
                     Title = item.Name,
                     OriginalTitle = item.OriginalTitle,
                     Year = item.ProductionYear,
                     Status = entry.Status.ToString(),
-                    LastError = entry.LastError
+                    LastError = entry.LastError,
+                    CsfdId = entry.CsfdId,
+                    MatchedTitle = entry.MatchedTitle,
+                    MatchedYear = entry.MatchedYear,
+                    QueryUsed = entry.QueryUsed
                 });
             }
-            else
+            else if (includeUncached)
             {
-                result.Add(new UnmatchedItem
+                result.Add(new ReviewItem
                 {
                     ItemId = itemId,
                     Title = item.Name,

@@ -80,6 +80,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="txtMatchConfidenceThreshold">Match confidence threshold</label>
+                            <input is="emby-input" type="number" id="txtMatchConfidenceThreshold" min="0" max="1.7" step="0.05" required />
+                            <div class="fieldDescription">Minimum automatic match score required before accepting a ČSFD candidate. Default is 1.0; lower values are more permissive, higher values send more items to manual review.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="selNativeRatingTarget">Native rating override</label>
                             <select is="emby-select" id="selNativeRatingTarget" class="emby-select-withcolor">
                                 <option value="0">Community Rating (star rating; 0-10)</option>
@@ -173,10 +179,16 @@
 
                 <div class="verticalSection">
                     <h3 class="sectionTitle">Manual Matching</h3>
-                    <p>List items that failed to match or were not found, and manually search for them on ČSFD.</p>
+                    <p>Review items that need manual attention, including unmatched entries and low-confidence "Awaiting Rating" matches.</p>
+                    <div style="display: flex; gap: 1em; flex-wrap: wrap;">
                     <button is="emby-button" type="button" class="raised" id="btnLoadUnmatched">
                         <span>Load Unmatched Items</span>
                     </button>
+                    <button is="emby-button" type="button" class="raised" id="btnLoadAwaitingRating">
+                        <span>Load Awaiting Rating Items</span>
+                    </button>
+                    </div>
+                    <div id="reviewListTitle" style="margin-top: 1em; font-weight: bold;"></div>
                     <div id="unmatchedList" style="margin-top: 1em;"></div>
                     
                     <div id="matchDialog" style="display: none; background: rgba(0,0,0,0.2); padding: 1em; margin-top: 1em; border-radius: 4px;">
@@ -231,6 +243,7 @@
             var CsfdRatingOverlayConfig = {
                 pluginId: 'b9643a4b-5b92-4f09-94c4-45ce6bfc57e9',
                 currentMatchItemId: null,
+                currentMatchListTitle: '',
                 currentCacheItemId: null,
                 currentCacheDetails: null,
 
@@ -246,6 +259,7 @@
                         document.querySelector('#txtRequestDelayMs').value = config.RequestDelayMs;
                         document.querySelector('#txtMaxRetries').value = config.MaxRetries;
                         document.querySelector('#txtCooldownMinMinutes').value = config.CooldownMinMinutes;
+                        document.querySelector('#txtMatchConfidenceThreshold').value = config.MatchConfidenceThreshold != null ? config.MatchConfidenceThreshold : 1.0;
                         var nrtMap = { CommunityRating: '0', CriticRating: '1', None: '2', Both: '3' };
                         var nrtVal = config.NativeRatingTarget;
                         document.querySelector('#selNativeRatingTarget').value = nrtMap[nrtVal] !== undefined ? nrtMap[nrtVal] : nrtVal;
@@ -266,6 +280,7 @@
                         config.RequestDelayMs = parseInt(document.querySelector('#txtRequestDelayMs').value, 10);
                         config.MaxRetries = parseInt(document.querySelector('#txtMaxRetries').value, 10);
                         config.CooldownMinMinutes = parseInt(document.querySelector('#txtCooldownMinMinutes').value, 10);
+                        config.MatchConfidenceThreshold = parseFloat(document.querySelector('#txtMatchConfidenceThreshold').value);
                         config.NativeRatingTarget = parseInt(document.querySelector('#selNativeRatingTarget').value, 10);
 
                         ApiClient.updatePluginConfiguration(CsfdRatingOverlayConfig.pluginId, config).then(function (result) {
@@ -329,27 +344,53 @@
                     });
                 },
 
-                loadUnmatched: function() {
+                loadReviewItems: function(statuses, includeUncached, title) {
+                    this.currentMatchListTitle = title;
                     Dashboard.showLoadingMsg();
-                    ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/unmatched')).then(function (items) {
+                    ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/review') + '?statuses=' + encodeURIComponent(statuses.join(',')) + '&includeUncached=' + (includeUncached ? 'true' : 'false')).then(function (items) {
                         Dashboard.hideLoadingMsg();
+                        document.querySelector('#reviewListTitle').textContent = title;
                         var html = '<div class="paperList">';
                         if (items.length === 0) {
-                            html += '<div class="listItem">No unmatched items found.</div>';
+                            html += '<div class="listItem">No items found.</div>';
                         } else {
                             items.forEach(function(item) {
                                 html += '<div class="listItem" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5em;">';
                                 html += '<div style="flex-grow: 1;">';
-                                html += '<div class="listItemBodyText" style="font-weight: bold;">' + (item.Title || 'Unknown') + ' (' + (item.Year || '?') + ')</div>';
-                                html += '<div class="listItemBodyText secondary">' + item.Status + (item.LastError ? ': ' + item.LastError : '') + '</div>';
+                                html += '<div class="listItemBodyText" style="font-weight: bold;">' + CsfdRatingOverlayConfig.escapeHtml(item.Title || 'Unknown') + ' (' + (item.Year || '?') + ')</div>';
+                                if (item.OriginalTitle) {
+                                    html += '<div class="listItemBodyText secondary">Original title: ' + CsfdRatingOverlayConfig.escapeHtml(item.OriginalTitle) + '</div>';
+                                }
+                                html += '<div class="listItemBodyText secondary">' + CsfdRatingOverlayConfig.escapeHtml(item.Status) + (item.LastError ? ': ' + CsfdRatingOverlayConfig.escapeHtml(item.LastError) : '') + '</div>';
+                                if (item.CsfdId || item.MatchedTitle || item.QueryUsed) {
+                                    var matchMeta = [];
+                                    if (item.MatchedTitle) {
+                                        matchMeta.push('Current match: ' + CsfdRatingOverlayConfig.escapeHtml(item.MatchedTitle) + (item.MatchedYear ? ' (' + item.MatchedYear + ')' : ''));
+                                    }
+                                    if (item.CsfdId) {
+                                        matchMeta.push('ČSFD ID: ' + CsfdRatingOverlayConfig.escapeHtml(item.CsfdId));
+                                    }
+                                    if (item.QueryUsed) {
+                                        matchMeta.push('Query: ' + CsfdRatingOverlayConfig.escapeHtml(item.QueryUsed));
+                                    }
+                                    html += '<div class="listItemBodyText secondary">' + matchMeta.join(' | ') + '</div>';
+                                }
                                 html += '</div>';
-                                html += '<button is="emby-button" type="button" class="raised" onclick="CsfdRatingOverlayConfig.openMatch(\'' + item.ItemId + '\', \'' + (item.Title || '').replace(/'/g, "\\'") + '\')">Match</button>';
+                                html += '<button is="emby-button" type="button" class="raised" onclick="CsfdRatingOverlayConfig.openMatch(\'' + item.ItemId + '\', \'' + CsfdRatingOverlayConfig.escapeJsString(item.Title || '') + '\')">Match</button>';
                                 html += '</div>';
                             });
                         }
                         html += '</div>';
                         document.querySelector('#unmatchedList').innerHTML = html;
                     });
+                },
+
+                loadUnmatched: function() {
+                    this.loadReviewItems(['NotFound', 'ErrorTransient', 'ErrorPermanent'], true, 'Unmatched Items');
+                },
+
+                loadAwaitingRating: function() {
+                    this.loadReviewItems(['ResolvedNoRating'], false, 'Awaiting Rating Items');
                 },
 
                 openMatch: function(itemId, title) {
@@ -424,7 +465,11 @@
                     }).then(function () {
                         Dashboard.hideLoadingMsg();
                         CsfdRatingOverlayConfig.closeMatch();
-                        CsfdRatingOverlayConfig.loadUnmatched();
+                        if (CsfdRatingOverlayConfig.currentMatchListTitle === 'Awaiting Rating Items') {
+                            CsfdRatingOverlayConfig.loadAwaitingRating();
+                        } else {
+                            CsfdRatingOverlayConfig.loadUnmatched();
+                        }
                         CsfdRatingOverlayConfig.loadStatus();
                         CsfdRatingOverlayConfig.loadConfiguration();
                         Dashboard.alert('Match saved. Reload open Jellyfin pages to fetch the updated CSFD badge.');
@@ -599,6 +644,12 @@
                         .replace(/'/g, '&#39;');
                 },
 
+                escapeJsString: function(str) {
+                    return (str || '').toString()
+                        .replace(/\\/g, '\\\\')
+                        .replace(/'/g, "\\'");
+                },
+
                 getDetailIconPreviewUrl: function(style) {
                     if (style === 'LogoSocial') {
                         return ApiClient.getUrl('Plugins/CsfdRatingOverlay/web/assets/logo-social.png');
@@ -686,6 +737,10 @@
 
             document.querySelector('#btnLoadUnmatched').addEventListener('click', function () {
                 CsfdRatingOverlayConfig.loadUnmatched();
+            });
+
+            document.querySelector('#btnLoadAwaitingRating').addEventListener('click', function () {
+                CsfdRatingOverlayConfig.loadAwaitingRating();
             });
 
             document.querySelector('#btnMatchCancel').addEventListener('click', function () {

@@ -30,6 +30,7 @@ public class PluginConfiguration : BasePluginConfiguration
         RequestDelayMs = 2000;
         MaxRetries = 5;
         CooldownMinMinutes = 10;
+        MatchConfidenceThreshold = 1.0;
         NativeRatingTarget = NativeRatingTarget.CommunityRating;
         OverlayDetailEnabled = true;
         DetailIconStyle = DetailIconStyle.None;
@@ -48,6 +49,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxRetries { get; set; }
 
     public int CooldownMinMinutes { get; set; }
+
+    public double MatchConfidenceThreshold { get; set; }
 
     public long ClientCacheVersion { get; set; }
 

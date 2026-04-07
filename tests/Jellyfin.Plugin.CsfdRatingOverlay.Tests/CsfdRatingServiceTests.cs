@@ -3,9 +3,11 @@ using System.Net.Http;
 using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
+using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Serialization;
@@ -433,6 +435,160 @@ public class CsfdRatingServiceTests
 
             Assert.Equal(FetchWorkResultKind.Success, result.Kind);
             Assert.Null(entry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FetchProcessor_LowConfidenceCandidate_MarksNotFound()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                Enabled = true,
+                MatchConfidenceThreshold = 1.0
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Rare Film",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            var handler = new RoutingResponseHandler(request =>
+            {
+                if (request.RequestUri!.AbsoluteUri.Contains("/hledat/?q=", StringComparison.Ordinal))
+                {
+                    return """
+                        <html>
+                          <body>
+                            <h3 class="film-title-nooverflow">
+                              <a href="/film/111111-completely-different/" >Completely Different</a>
+                              <span>2024</span>
+                            </h3>
+                            <p class="search-name">(Nothing Similar)</p>
+                          </body>
+                        </html>
+                        """;
+                }
+
+                return """
+                    <html>
+                      <body>
+                        <div class="film-rating-average">81%</div>
+                      </body>
+                    </html>
+                    """;
+            });
+
+            var client = new CsfdClient(
+                new HttpClient(handler),
+                new DebugLogger(),
+                NullLogger<CsfdClient>.Instance,
+                new AnubisChallengeSolver(NullLogger<AnubisChallengeSolver>.Instance));
+            var rateLimiter = new CsfdRateLimiter(TimeSpan.Zero, TimeSpan.FromSeconds(1), NullLogger<CsfdRateLimiter>.Instance);
+
+            var processor = new CsfdFetchProcessor(
+                libraryManager.Object,
+                cacheStore,
+                client,
+                rateLimiter,
+                new DebugLogger(),
+                NullLogger<CsfdFetchProcessor>.Instance);
+
+            var result = await processor.ProcessAsync(
+                new CsfdFetchRequest { ItemId = itemId.ToString(), Force = true },
+                CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(FetchWorkResultKind.Success, result.Kind);
+            Assert.NotNull(entry);
+            Assert.Equal(CsfdCacheEntryStatus.NotFound, entry!.Status);
+            Assert.Null(entry.CsfdId);
+            Assert.Equal("Rare Film 2024", entry.QueryUsed);
+            Assert.False(movie.UpdateCalled);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GetReviewItemsAsync_ResolvedNoRating_ReturnsMatchMetadata()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Awaiting Movie",
+                OriginalTitle = "Original Awaiting Movie",
+                ProductionYear = 2026,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CsfdId = "5555",
+                MatchedTitle = "Wrong Match Maybe",
+                MatchedYear = 2024,
+                QueryUsed = "Awaiting Movie 2026",
+                CreatedUtc = DateTimeOffset.UtcNow,
+                AttemptedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningNoRating(),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var items = await sut.GetReviewItemsAsync(new[] { CsfdCacheEntryStatus.ResolvedNoRating }, includeUncached: false, CancellationToken.None);
+
+            var reviewItem = Assert.Single(items);
+            Assert.Equal(itemId.ToString(), reviewItem.ItemId);
+            Assert.Equal("Awaiting Movie", reviewItem.Title);
+            Assert.Equal("Original Awaiting Movie", reviewItem.OriginalTitle);
+            Assert.Equal("ResolvedNoRating", reviewItem.Status);
+            Assert.Equal("5555", reviewItem.CsfdId);
+            Assert.Equal("Wrong Match Maybe", reviewItem.MatchedTitle);
+            Assert.Equal(2024, reviewItem.MatchedYear);
+            Assert.Equal("Awaiting Movie 2026", reviewItem.QueryUsed);
         }
         finally
         {

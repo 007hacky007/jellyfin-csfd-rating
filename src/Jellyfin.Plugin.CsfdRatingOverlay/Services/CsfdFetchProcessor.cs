@@ -128,6 +128,29 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
             return FetchWorkResult.Success;
         }
 
+        var matchThreshold = Math.Max(0, config.MatchConfidenceThreshold);
+        if (candidate.Score < matchThreshold)
+        {
+            _debugLogger.LogFailure(
+                $"Match:{item.Name}",
+                "Best candidate score below threshold",
+                $"Search: {searchQuery}",
+                null,
+                new
+                {
+                    Query = searchQuery,
+                    Threshold = matchThreshold,
+                    SelectedCandidate = candidate,
+                    OriginalTitle = item.OriginalTitle,
+                    Year = item.ProductionYear,
+                    IsSeries = isSeries,
+                    Candidates = searchResult.Payload
+                });
+
+            await MarkNotFoundAsync(updatedEntry, searchQuery, cancellationToken).ConfigureAwait(false);
+            return FetchWorkResult.Success;
+        }
+
         updatedEntry.CsfdId = candidate.CsfdId;
         updatedEntry.MatchedTitle = candidate.Title;
         updatedEntry.MatchedYear = candidate.Year;
