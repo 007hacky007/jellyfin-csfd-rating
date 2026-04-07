@@ -382,6 +382,64 @@ public class CsfdRatingServiceTests
         }
     }
 
+    [Fact]
+    public async Task FetchProcessor_OrphanErrorPermanent_DeletesStaleCacheEntry()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                Enabled = true,
+            });
+
+            var orphanItemId = Guid.NewGuid();
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(orphanItemId)).Returns((Movie?)null);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            var existingEntry = new CsfdCacheEntry
+            {
+                ItemId = orphanItemId.ToString(),
+                Status = CsfdCacheEntryStatus.ErrorPermanent,
+                AttemptCount = 1,
+                CreatedUtc = DateTimeOffset.UtcNow.AddMonths(-4),
+                AttemptedUtc = DateTimeOffset.UtcNow.AddMonths(-4),
+                LastError = "legacy ghost entry"
+            };
+            await cacheStore.UpsertAsync(existingEntry, CancellationToken.None);
+
+            var client = CreateClientReturningPercent(75);
+            var rateLimiter = new CsfdRateLimiter(TimeSpan.Zero, TimeSpan.FromSeconds(1), NullLogger<CsfdRateLimiter>.Instance);
+
+            var processor = new CsfdFetchProcessor(
+                libraryManager.Object,
+                cacheStore,
+                client,
+                rateLimiter,
+                new DebugLogger(),
+                NullLogger<CsfdFetchProcessor>.Instance);
+
+            var result = await processor.ProcessAsync(
+                new CsfdFetchRequest { ItemId = orphanItemId.ToString(), Force = true },
+                CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(orphanItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(FetchWorkResultKind.Success, result.Kind);
+            Assert.Null(entry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static CsfdClient CreateClientReturningPercent(int percent)
     {
         var handler = new StaticResponseHandler($"""

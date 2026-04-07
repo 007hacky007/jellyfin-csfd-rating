@@ -53,6 +53,8 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         _logger.LogWarning("ProcessAsync: GetItem={ItemName} {ItemId}", item?.Name ?? "NULL", request.ItemId);
         if (item == null)
         {
+            await _cacheStore.DeleteAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("ProcessAsync: EXIT item not found; deleted stale cache entry {ItemId}", request.ItemId);
             return FetchWorkResult.Success;
         }
 
