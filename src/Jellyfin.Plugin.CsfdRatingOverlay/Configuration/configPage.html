@@ -336,10 +336,7 @@
                         };
                         
                         var s = statusMap[status.InjectionStatus] || { text: "Unknown", color: "#9e9e9e" };
-                        injStatus.textContent = s.text;
-                        injStatus.style.color = s.color;
-                        injMsg.textContent = status.InjectionMessage || "";
-                        CsfdRatingOverlayConfig.updateClientInjectionStatus();
+                        CsfdRatingOverlayConfig.updateClientInjectionStatus(status, s);
                         
                         var btnPause = document.querySelector('#btnPauseResume');
                         if (status.IsPaused) {
@@ -352,16 +349,34 @@
                     });
                 },
 
-                updateClientInjectionStatus: function() {
+                updateClientInjectionStatus: function(status, registrationDisplay) {
                     var loaded = window.__csfdOverlayLoaded === true;
+                    var injStatus = document.querySelector('#statInjectionStatus');
+                    var injMsg = document.querySelector('#statInjectionMessage');
                     var statusEl = document.querySelector('#statClientInjectionStatus');
                     var messageEl = document.querySelector('#statClientInjectionMessage');
 
                     if (loaded) {
+                        if (status && (status.InjectionStatus === 1 || status.InjectionStatus === 'Registered')) {
+                            injStatus.textContent = 'Registered + Loaded';
+                            injStatus.style.color = '#4caf50';
+                            injMsg.textContent = 'File Transformation registration succeeded and overlay.js is running in this browser session.';
+                        } else if (registrationDisplay) {
+                            injStatus.textContent = registrationDisplay.text;
+                            injStatus.style.color = registrationDisplay.color;
+                            injMsg.textContent = status && status.InjectionMessage ? status.InjectionMessage : '';
+                        }
+
                         statusEl.textContent = 'Loaded';
                         statusEl.style.color = '#4caf50';
                         messageEl.textContent = 'overlay.js is running in this browser session.';
                         return;
+                    }
+
+                    if (registrationDisplay) {
+                        injStatus.textContent = registrationDisplay.text;
+                        injStatus.style.color = registrationDisplay.color;
+                        injMsg.textContent = status && status.InjectionMessage ? status.InjectionMessage : '';
                     }
 
                     statusEl.textContent = 'Not Loaded';
