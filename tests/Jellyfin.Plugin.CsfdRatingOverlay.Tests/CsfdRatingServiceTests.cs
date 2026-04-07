@@ -57,7 +57,6 @@ public class CsfdRatingServiceTests
                 cacheStore,
                 queue,
                 client,
-                appPaths.Object,
                 NullLogger<CsfdRatingService>.Instance);
 
             await sut.ManualMatchAsync(itemId.ToString("N"), "9499", CancellationToken.None);
@@ -154,7 +153,6 @@ public class CsfdRatingServiceTests
                 cacheStore,
                 queue,
                 client,
-                appPaths.Object,
                 NullLogger<CsfdRatingService>.Instance);
 
             await sut.ManualMatchAsync(itemId.ToString("N"), "999999", CancellationToken.None);
@@ -219,7 +217,6 @@ public class CsfdRatingServiceTests
                 cacheStore,
                 queue,
                 client,
-                appPaths.Object,
                 NullLogger<CsfdRatingService>.Instance);
 
             await sut.ManualMatchAsync(itemId.ToString("N"), "999999", CancellationToken.None);
@@ -579,7 +576,6 @@ public class CsfdRatingServiceTests
                 cacheStore,
                 queue,
                 CreateClientReturningNoRating(),
-                appPaths.Object,
                 NullLogger<CsfdRatingService>.Instance);
 
             var items = await sut.GetReviewItemsAsync(new[] { CsfdCacheEntryStatus.ResolvedNoRating }, includeUncached: false, CancellationToken.None);

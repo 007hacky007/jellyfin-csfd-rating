@@ -1,6 +1,7 @@
 /* Jellyfin ČSFD Rating Overlay - injected client bundle */
 (() => {
   const logPrefix = '[CsfdOverlay]';
+  window.__csfdOverlayLoaded = true;
   console.log(logPrefix, 'Script initializing...');
 
   function waitForApiClient(attempt = 0) {

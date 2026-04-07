@@ -137,10 +137,15 @@
                         </div>
                         <div style="margin-top: 1em; padding-top: 1em; border-top: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; justify-content: space-between;">
-                                <span>Overlay Injection:</span>
+                                <span>Overlay Registration:</span>
                                 <span id="statInjectionStatus" style="font-weight: bold;">-</span>
                             </div>
                             <div id="statInjectionMessage" style="font-size: 0.9em; opacity: 0.8; margin-top: 0.2em;"></div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 0.75em;">
+                                <span>Overlay Loaded In This Browser:</span>
+                                <span id="statClientInjectionStatus" style="font-weight: bold;">-</span>
+                            </div>
+                            <div id="statClientInjectionMessage" style="font-size: 0.9em; opacity: 0.8; margin-top: 0.2em;"></div>
                         </div>
                     </div>
                     <div style="display: flex; gap: 1em;">
@@ -334,6 +339,7 @@
                         injStatus.textContent = s.text;
                         injStatus.style.color = s.color;
                         injMsg.textContent = status.InjectionMessage || "";
+                        CsfdRatingOverlayConfig.updateClientInjectionStatus();
                         
                         var btnPause = document.querySelector('#btnPauseResume');
                         if (status.IsPaused) {
@@ -344,6 +350,23 @@
                             btnPause.setAttribute('data-action', 'pause');
                         }
                     });
+                },
+
+                updateClientInjectionStatus: function() {
+                    var loaded = window.__csfdOverlayLoaded === true;
+                    var statusEl = document.querySelector('#statClientInjectionStatus');
+                    var messageEl = document.querySelector('#statClientInjectionMessage');
+
+                    if (loaded) {
+                        statusEl.textContent = 'Loaded';
+                        statusEl.style.color = '#4caf50';
+                        messageEl.textContent = 'overlay.js is running in this browser session.';
+                        return;
+                    }
+
+                    statusEl.textContent = 'Not Loaded';
+                    statusEl.style.color = '#f44336';
+                    messageEl.textContent = 'overlay.js is not running in this browser session. If registration is enabled, try a hard refresh or re-open Jellyfin Web. If it still does not load, File Transformation may be broken or incompatible, and manual index.html injection may be needed.';
                 },
 
                 loadReviewItems: function(statuses, includeUncached, title) {

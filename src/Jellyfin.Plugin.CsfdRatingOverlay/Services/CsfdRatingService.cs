@@ -5,7 +5,6 @@ using Jellyfin.Plugin.CsfdRatingOverlay.Matching;
 using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Data.Enums;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -21,7 +20,6 @@ public class CsfdRatingService
     private readonly ICsfdCacheStore _cacheStore;
     private readonly CsfdFetchQueue _queue;
     private readonly CsfdClient _csfdClient;
-    private readonly IApplicationPaths _applicationPaths;
     private readonly ILogger<CsfdRatingService> _logger;
 
     private OverlayInjectionStatus _injectionStatus = OverlayInjectionStatus.NotAttempted;
@@ -32,14 +30,12 @@ public class CsfdRatingService
         ICsfdCacheStore cacheStore,
         CsfdFetchQueue queue,
         CsfdClient csfdClient,
-        IApplicationPaths applicationPaths,
         ILogger<CsfdRatingService> logger)
     {
         _libraryManager = libraryManager;
         _cacheStore = cacheStore;
         _queue = queue;
         _csfdClient = csfdClient;
-        _applicationPaths = applicationPaths;
         _logger = logger;
     }
 
@@ -118,62 +114,15 @@ public class CsfdRatingService
             Recursive = true
         }).Count;
 
-        var (injectionStatus, injectionMessage, injectionProbePath) = GetOverlayInjectionStatus();
-
         return new CsfdPluginStatus
         {
             QueueSize = _queue.Count,
             IsPaused = _queue.IsPaused,
             TotalLibraryItems = totalItems,
             CacheStats = stats,
-            InjectionStatus = injectionStatus,
-            InjectionMessage = injectionMessage,
-            InjectionProbePath = injectionProbePath
+            InjectionStatus = _injectionStatus,
+            InjectionMessage = _injectionMessage
         };
-    }
-
-    private (OverlayInjectionStatus Status, string? Message, string? ProbePath) GetOverlayInjectionStatus()
-    {
-        var cfg = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
-        if (!cfg.OverlayInjectionEnabled)
-        {
-            return (_injectionStatus, "Overlay injection disabled in plugin settings", null);
-        }
-
-        var probePath = Path.Combine(_applicationPaths.WebPath, "index.html");
-        if (_injectionStatus != OverlayInjectionStatus.Registered)
-        {
-            return (_injectionStatus, _injectionMessage, probePath);
-        }
-
-        try
-        {
-            if (!File.Exists(probePath))
-            {
-                return (
-                    OverlayInjectionStatus.Registered,
-                    $"Registered with File Transformation plugin, but the probe file was not found: {probePath}. This usually means Jellyfin is serving web assets from a different location, or the File Transformation plugin is not patching the active web root. Check File Transformation compatibility with your Jellyfin version, or manually add <script src=\"/Plugins/CsfdRatingOverlay/web/overlay.js\"></script> before </head> in the served index.html.",
-                    probePath);
-            }
-
-            var html = File.ReadAllText(probePath);
-            if (html.Contains("/Plugins/CsfdRatingOverlay/web/overlay.js", StringComparison.OrdinalIgnoreCase))
-            {
-                return (OverlayInjectionStatus.Injected, $"Script tag found in {probePath}", probePath);
-            }
-
-            return (
-                OverlayInjectionStatus.Registered,
-                $"Registered with File Transformation plugin, but script tag was not found in {probePath}. This usually means the File Transformation plugin is broken, disabled, or incompatible with your Jellyfin version, so registration succeeded but no actual patch was applied. Check Jellyfin/File Transformation compatibility and logs, or manually add <script src=\"/Plugins/CsfdRatingOverlay/web/overlay.js\"></script> before </head> in {probePath}.",
-                probePath);
-        }
-        catch (Exception ex)
-        {
-            return (
-                OverlayInjectionStatus.Registered,
-                $"Registered with File Transformation plugin, but probing {probePath} failed: {ex.Message}. This can still indicate a broken or incompatible File Transformation setup. If needed, manually add <script src=\"/Plugins/CsfdRatingOverlay/web/overlay.js\"></script> before </head> in the served index.html.",
-                probePath);
-        }
     }
 
     public void SetPaused(bool paused)
