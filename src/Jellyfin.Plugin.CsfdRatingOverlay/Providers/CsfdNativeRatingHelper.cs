@@ -85,14 +85,6 @@ public static class CsfdNativeRatingHelper
             }
         }
 
-        // Store CSFD ID in ProviderIds so it's visible in item metadata
-        if (entry.CsfdId is not null
-            && (!item.ProviderIds.TryGetValue("Csfd", out var existing) || existing != entry.CsfdId))
-        {
-            item.ProviderIds["Csfd"] = entry.CsfdId;
-            changed = true;
-        }
-
         if (changed)
         {
             logger?.LogDebug(

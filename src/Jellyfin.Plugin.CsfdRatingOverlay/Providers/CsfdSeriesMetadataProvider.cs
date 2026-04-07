@@ -27,7 +27,7 @@ public class CsfdSeriesMetadataProvider : ICustomMetadataProvider<Series>
     public async Task<ItemUpdateType> FetchAsync(Series item, MetadataRefreshOptions options, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        if (!config.Enabled || config.NativeRatingTarget == NativeRatingTarget.None)
+        if (!config.Enabled)
         {
             return ItemUpdateType.None;
         }
@@ -38,8 +38,22 @@ public class CsfdSeriesMetadataProvider : ICustomMetadataProvider<Series>
             return ItemUpdateType.None;
         }
 
-        return CsfdNativeRatingHelper.ApplyRating(item, entry, config.NativeRatingTarget, _logger)
-            ? ItemUpdateType.MetadataEdit
-            : ItemUpdateType.None;
+        var changed = false;
+
+        // Always persist CSFD provider ID regardless of native rating setting
+        if (!string.IsNullOrWhiteSpace(entry.CsfdId)
+            && entry.Status is CsfdCacheEntryStatus.Resolved or CsfdCacheEntryStatus.ResolvedNoRating
+            && (!item.ProviderIds.TryGetValue("Csfd", out var existing) || !string.Equals(existing, entry.CsfdId, StringComparison.Ordinal)))
+        {
+            item.ProviderIds["Csfd"] = entry.CsfdId;
+            changed = true;
+        }
+
+        if (config.NativeRatingTarget != NativeRatingTarget.None)
+        {
+            changed = CsfdNativeRatingHelper.ApplyRating(item, entry, config.NativeRatingTarget, _logger) || changed;
+        }
+
+        return changed ? ItemUpdateType.MetadataEdit : ItemUpdateType.None;
     }
 }

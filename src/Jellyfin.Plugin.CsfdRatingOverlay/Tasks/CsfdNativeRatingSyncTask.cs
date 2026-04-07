@@ -37,17 +37,10 @@ public class CsfdNativeRatingSyncTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        if (config.NativeRatingTarget == NativeRatingTarget.None)
-        {
-            _logger.LogInformation("Native rating override is disabled, skipping sync");
-            return;
-        }
-
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var resolved = entries.Where(e => e.Status == CsfdCacheEntryStatus.Resolved && e.Percent.HasValue).ToList();
+        var resolved = entries.Where(e => e.Status is CsfdCacheEntryStatus.Resolved or CsfdCacheEntryStatus.ResolvedNoRating).ToList();
 
-        _logger.LogInformation("Syncing {Count} resolved CSFD ratings to {Target}", resolved.Count, config.NativeRatingTarget);
+        _logger.LogInformation("Syncing {Count} resolved CSFD entries to library metadata", resolved.Count);
 
         var updated = 0;
         for (var i = 0; i < resolved.Count; i++)
@@ -66,16 +59,13 @@ public class CsfdNativeRatingSyncTask : IScheduledTask
                 continue;
             }
 
-            if (CsfdNativeRatingHelper.ApplyRating(item, entry, config.NativeRatingTarget, _logger))
-            {
-                await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-                updated++;
-            }
+            await CsfdNativeRatingHelper.PersistMetadataAsync(item, entry, _logger, cancellationToken).ConfigureAwait(false);
+            updated++;
 
             progress.Report((double)(i + 1) / resolved.Count * 100);
         }
 
-        _logger.LogInformation("Native rating sync complete: {Updated}/{Total} items updated", updated, resolved.Count);
+        _logger.LogInformation("Native rating sync complete: {Updated}/{Total} items processed", updated, resolved.Count);
     }
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

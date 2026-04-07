@@ -176,6 +176,155 @@ public class CsfdRatingServiceTests
         }
     }
 
+    [Fact]
+    public async Task FetchProcessor_Resolved_PersistsProviderIdAndRating()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                Enabled = true,
+                NativeRatingTarget = NativeRatingTarget.CommunityRating,
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Test Movie",
+                ProductionYear = 2023,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            // Pre-populate cache with a known CsfdId so processor skips search
+            var existingEntry = new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CsfdId = "12345",
+                CreatedUtc = DateTimeOffset.UtcNow,
+                AttemptedUtc = DateTimeOffset.UtcNow,
+                RetryAfterUtc = DateTimeOffset.UtcNow.AddHours(-1) // expired cooldown
+            };
+            await cacheStore.UpsertAsync(existingEntry, CancellationToken.None);
+
+            var client = CreateClientReturningPercent(75);
+            var rateLimiter = new CsfdRateLimiter(TimeSpan.Zero, TimeSpan.FromSeconds(1), NullLogger<CsfdRateLimiter>.Instance);
+
+            var processor = new CsfdFetchProcessor(
+                libraryManager.Object,
+                cacheStore,
+                client,
+                rateLimiter,
+                new DebugLogger(),
+                NullLogger<CsfdFetchProcessor>.Instance);
+
+            var request = new CsfdFetchRequest { ItemId = itemId.ToString(), Force = true };
+            await processor.ProcessAsync(request, CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.NotNull(entry);
+            Assert.Equal(CsfdCacheEntryStatus.Resolved, entry!.Status);
+            Assert.Equal(75, entry.Percent);
+            Assert.Equal("12345", entry.CsfdId);
+
+            // Verify metadata was persisted to library item
+            Assert.True(movie.UpdateCalled);
+            Assert.Equal("12345", movie.ProviderIds["Csfd"]);
+            Assert.NotNull(movie.CommunityRating);
+            Assert.True(Math.Abs(movie.CommunityRating!.Value - 7.5f) < 0.001f);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FetchProcessor_NoRating_PersistsProviderIdWithoutRating()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                Enabled = true,
+                NativeRatingTarget = NativeRatingTarget.CommunityRating,
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "New Movie",
+                ProductionYear = 2027,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            // Pre-populate cache with known CsfdId
+            var existingEntry = new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CsfdId = "99999",
+                CreatedUtc = DateTimeOffset.UtcNow,
+                AttemptedUtc = DateTimeOffset.UtcNow,
+                RetryAfterUtc = DateTimeOffset.UtcNow.AddHours(-1)
+            };
+            await cacheStore.UpsertAsync(existingEntry, CancellationToken.None);
+
+            var client = CreateClientReturningNoRating();
+            var rateLimiter = new CsfdRateLimiter(TimeSpan.Zero, TimeSpan.FromSeconds(1), NullLogger<CsfdRateLimiter>.Instance);
+
+            var processor = new CsfdFetchProcessor(
+                libraryManager.Object,
+                cacheStore,
+                client,
+                rateLimiter,
+                new DebugLogger(),
+                NullLogger<CsfdFetchProcessor>.Instance);
+
+            var request = new CsfdFetchRequest { ItemId = itemId.ToString(), Force = true };
+            await processor.ProcessAsync(request, CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.NotNull(entry);
+            Assert.Equal(CsfdCacheEntryStatus.ResolvedNoRating, entry!.Status);
+            Assert.Equal("99999", entry.CsfdId);
+            Assert.Null(entry.Percent);
+
+            // Verify CSFD ID persisted to library item even without rating
+            Assert.True(movie.UpdateCalled);
+            Assert.Equal("99999", movie.ProviderIds["Csfd"]);
+            Assert.Null(movie.CommunityRating);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static CsfdClient CreateClientReturningPercent(int percent)
     {
         var handler = new StaticResponseHandler($"""
@@ -224,6 +373,24 @@ public class CsfdRatingServiceTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(_responseContent)
+            });
+        }
+    }
+
+    private sealed class RoutingResponseHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, string> _router;
+
+        public RoutingResponseHandler(Func<HttpRequestMessage, string> router)
+        {
+            _router = router;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_router(request))
             });
         }
     }
