@@ -77,11 +77,9 @@ public sealed class CsfdFetchQueue : IAsyncDisposable
                 }
 
                 Interlocked.Decrement(ref _count);
-                _logger.LogWarning("Queue: dispatching {ItemId} (Force={Force})", request.ItemId, request.Force);
                 try
                 {
                     var result = await _processor.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
-                    _logger.LogWarning("Queue: finished {ItemId} with result {Result}", request.ItemId, result.Kind);
                     if (result.Kind == FetchWorkResultKind.Throttled)
                     {
                         var delay = result.RetryAfter ?? TimeSpan.FromSeconds(60);
