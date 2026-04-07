@@ -40,9 +40,12 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     public async Task<FetchWorkResult> ProcessAsync(CsfdFetchRequest request, CancellationToken cancellationToken)
     {
+        _logger.LogWarning("ProcessAsync: ENTER for {ItemId}, Force={Force}", request.ItemId, request.Force);
+
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
         if (!config.Enabled)
         {
+            _logger.LogWarning("ProcessAsync: plugin disabled, skipping {ItemId}", request.ItemId);
             return FetchWorkResult.Success;
         }
 

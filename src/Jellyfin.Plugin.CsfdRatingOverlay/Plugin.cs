@@ -13,6 +13,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        Console.WriteLine("[CsfdRatingOverlay] Plugin loaded, Enabled=" + Configuration.Enabled);
     }
 
     public static Plugin Instance { get; private set; } = null!;
