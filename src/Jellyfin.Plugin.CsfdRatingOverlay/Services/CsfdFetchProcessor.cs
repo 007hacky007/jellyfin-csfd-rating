@@ -60,6 +60,7 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         var cacheEntry = await _cacheStore.GetAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
         if (!ShouldAttempt(cacheEntry, fingerprint, request.Force))
         {
+            _logger.LogWarning("ProcessAsync: ShouldAttempt=false for {ItemId}, Status={Status}, Force={Force}", request.ItemId, cacheEntry?.Status, request.Force);
             return FetchWorkResult.Success;
         }
 
