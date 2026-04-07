@@ -4,13 +4,22 @@ namespace Jellyfin.Plugin.CsfdRatingOverlay.Services;
 
 public class DebugLogger
 {
-    private readonly string _logPath;
     private static readonly object _lock = new();
+    private string? _logPath;
 
-    public DebugLogger()
+    private string LogPath
     {
-        var path = Plugin.Instance?.DataFolderPath ?? Path.GetTempPath();
-        _logPath = Path.Combine(path, "csfd_debug_failures.jsonl");
+        get
+        {
+            if (_logPath is null)
+            {
+                var path = Plugin.Instance?.DataFolderPath ?? Path.GetTempPath();
+                Directory.CreateDirectory(path);
+                _logPath = Path.Combine(path, "csfd_debug_failures.jsonl");
+            }
+
+            return _logPath;
+        }
     }
 
     public void LogFailure(string context, string reason, string url, string? responseContent, object? extraData = null)
@@ -23,15 +32,15 @@ public class DebugLogger
                 Context = context,
                 Reason = reason,
                 Url = url,
-                ResponsePreview = responseContent, // Log full content as requested by user ("Log whole request and response")
+                ResponsePreview = responseContent,
                 ExtraData = extraData
             };
 
             var line = JsonSerializer.Serialize(entry);
-            
+
             lock (_lock)
             {
-                File.AppendAllText(_logPath, line + Environment.NewLine);
+                File.AppendAllText(LogPath, line + Environment.NewLine);
             }
         }
         catch
