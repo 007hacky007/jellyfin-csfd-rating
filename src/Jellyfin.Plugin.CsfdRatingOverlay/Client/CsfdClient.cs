@@ -92,13 +92,17 @@ public class CsfdClient
              return CsfdClientResult<int?>.Fail("Captcha detected");
         }
 
+        // Verify we are on an actual film page before trusting the absence of a rating.
+        // CSFD film detail pages contain "film-header-name" for the title.
+        var isFilmPage = html.Contains("film-header-name", StringComparison.Ordinal);
+
         var percent = ParsePercent(html);
         if (percent is null)
         {
             var idx = html.IndexOf("film-rating-average", StringComparison.Ordinal);
             if (idx >= 0)
             {
-                 // The element exists but we couldn't parse the percentage - likely a regex/HTML change
+                 // The rating element exists but we couldn't parse the percentage - likely a regex/HTML change
                  var start = Math.Max(0, idx - 100);
                  var len = Math.Min(html.Length - start, 500);
                  _logger.LogError("Failed to parse rating percent for {Url}. Context: {Context}", url, html.Substring(start, len));
@@ -106,9 +110,17 @@ public class CsfdClient
                  return CsfdClientResult<int?>.Fail("Rating percent parse error");
             }
 
-            // Page loaded fine but has no rating element - movie exists but is unrated
-            _logger.LogInformation("CSFD page has no rating for {CsfdId}", csfdId);
-            return CsfdClientResult<int?>.Ok(null);
+            if (isFilmPage)
+            {
+                // Valid film page with no rating element - movie exists but is unrated
+                _logger.LogInformation("CSFD page has no rating for {CsfdId}", csfdId);
+                return CsfdClientResult<int?>.Ok(null);
+            }
+
+            // Not a recognizable film page - treat as a failure so we retry later
+            _logger.LogWarning("CSFD page for {CsfdId} is missing both rating and film-header-name; treating as fetch error", csfdId);
+            _debugLogger.LogFailure($"Rating:{csfdId}", "Unrecognized page structure", url, html);
+            return CsfdClientResult<int?>.Fail("Unrecognized page structure");
         }
 
         return CsfdClientResult<int?>.Ok(percent.Value);

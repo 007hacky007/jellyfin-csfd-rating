@@ -58,7 +58,31 @@ public static class CsfdNativeRatingHelper
             return false;
         }
 
-        if (entry.Status != CsfdCacheEntryStatus.Resolved || entry.Percent is null)
+        // ResolvedNoRating: clear any stale native ratings from a previous match
+        if (entry.Status == CsfdCacheEntryStatus.ResolvedNoRating || entry.Percent is null)
+        {
+            var cleared = false;
+            if ((target is NativeRatingTarget.CommunityRating or NativeRatingTarget.Both) && item.CommunityRating.HasValue)
+            {
+                item.CommunityRating = null;
+                cleared = true;
+            }
+
+            if ((target is NativeRatingTarget.CriticRating or NativeRatingTarget.Both) && item.CriticRating.HasValue)
+            {
+                item.CriticRating = null;
+                cleared = true;
+            }
+
+            if (cleared)
+            {
+                logger?.LogDebug("Cleared stale CSFD native rating from {ItemName} (status={Status})", item.Name, entry.Status);
+            }
+
+            return cleared;
+        }
+
+        if (entry.Status != CsfdCacheEntryStatus.Resolved)
         {
             return false;
         }

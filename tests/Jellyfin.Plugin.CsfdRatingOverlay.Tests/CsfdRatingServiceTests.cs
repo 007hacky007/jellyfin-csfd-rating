@@ -177,6 +177,63 @@ public class CsfdRatingServiceTests
     }
 
     [Fact]
+    public async Task ManualMatchAsync_NoRating_ClearsStaleNativeRatings()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                NativeRatingTarget = NativeRatingTarget.Both,
+                ClientCacheVersion = 0
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Previously Rated Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string> { { "Csfd", "old-id" } },
+                CommunityRating = 7.5f,
+                CriticRating = 75f
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(itemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var client = CreateClientReturningNoRating();
+
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                client,
+                NullLogger<CsfdRatingService>.Instance);
+
+            await sut.ManualMatchAsync(itemId.ToString("N"), "999999", CancellationToken.None);
+
+            // CSFD ID should be updated
+            Assert.Equal("999999", movie.ProviderIds["Csfd"]);
+
+            // Stale ratings should be cleared
+            Assert.Null(movie.CommunityRating);
+            Assert.Null(movie.CriticRating);
+            Assert.True(movie.UpdateCalled);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FetchProcessor_Resolved_PersistsProviderIdAndRating()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
@@ -347,7 +404,7 @@ public class CsfdRatingServiceTests
         var handler = new StaticResponseHandler("""
             <html>
               <body>
-                <div class="film-header">Movie page with no rating</div>
+                <h1 class="film-header-name">Movie page with no rating</h1>
               </body>
             </html>
             """);
