@@ -40,29 +40,31 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     public async Task<FetchWorkResult> ProcessAsync(CsfdFetchRequest request, CancellationToken cancellationToken)
     {
-        _logger.LogWarning("ProcessAsync: ENTER for {ItemId}, Force={Force}", request.ItemId, request.Force);
+        _logger.LogWarning("ProcessAsync: ENTER {ItemId} Force={Force}", request.ItemId, request.Force);
 
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
         if (!config.Enabled)
         {
-            _logger.LogWarning("ProcessAsync: plugin disabled, skipping {ItemId}", request.ItemId);
+            _logger.LogWarning("ProcessAsync: EXIT disabled {ItemId}", request.ItemId);
             return FetchWorkResult.Success;
         }
 
         var item = GetItem(request.ItemId);
+        _logger.LogWarning("ProcessAsync: GetItem={ItemName} {ItemId}", item?.Name ?? "NULL", request.ItemId);
         if (item == null)
         {
-            _logger.LogWarning("Item {ItemId} not found in library; dropping request", request.ItemId);
             return FetchWorkResult.Success;
         }
 
         var fingerprint = MetadataFingerprint.Compute(item);
         var cacheEntry = await _cacheStore.GetAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+        _logger.LogWarning("ProcessAsync: cache={Status} force={Force} {ItemId}", cacheEntry?.Status, request.Force, request.ItemId);
         if (!ShouldAttempt(cacheEntry, fingerprint, request.Force))
         {
-            _logger.LogWarning("ProcessAsync: ShouldAttempt=false for {ItemId}, Status={Status}, Force={Force}", request.ItemId, cacheEntry?.Status, request.Force);
+            _logger.LogWarning("ProcessAsync: EXIT ShouldAttempt=false {ItemId}", request.ItemId);
             return FetchWorkResult.Success;
         }
+        _logger.LogWarning("ProcessAsync: proceeding to search/fetch {ItemId}", request.ItemId);
 
         var updatedEntry = cacheEntry ?? new CsfdCacheEntry
         {
