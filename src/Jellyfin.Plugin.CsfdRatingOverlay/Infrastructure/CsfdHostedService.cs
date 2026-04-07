@@ -91,7 +91,7 @@ public class CsfdHostedService : IHostedService, IAsyncDisposable
                     {
                         registerMethod.Invoke(null, new object?[] { data });
                         _logger.LogInformation("Registered index.html transformation with File Transformation plugin");
-                        _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Injected, "Successfully registered with File Transformation plugin");
+                        _ratingService.SetOverlayInjectionStatus(OverlayInjectionStatus.Registered, "Successfully registered with File Transformation plugin");
                     }
                     else
                     {

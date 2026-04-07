@@ -18,4 +18,5 @@ public class CsfdPluginStatus
 
     public OverlayInjectionStatus InjectionStatus { get; set; }
     public string? InjectionMessage { get; set; }
+    public string? InjectionProbePath { get; set; }
 }
