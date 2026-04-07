@@ -102,7 +102,17 @@ public class CsfdClient
             var idx = html.IndexOf("film-rating-average", StringComparison.Ordinal);
             if (idx >= 0)
             {
-                 // The rating element exists but we couldn't parse the percentage - likely a regex/HTML change
+                 // Check if CSFD is showing "? %" which means the film exists but is unrated
+                 var contextStart = idx;
+                 var contextLen = Math.Min(html.Length - contextStart, 300);
+                 var ratingContext = html.Substring(contextStart, contextLen);
+                 if (ratingContext.Contains("? %", StringComparison.Ordinal) || ratingContext.Contains("not-rated", StringComparison.Ordinal))
+                 {
+                     _logger.LogInformation("CSFD page has unrated marker for {CsfdId}", csfdId);
+                     return CsfdClientResult<int?>.Ok(null);
+                 }
+
+                 // The rating element exists with a value but we couldn't parse it - likely a regex/HTML change
                  var start = Math.Max(0, idx - 100);
                  var len = Math.Min(html.Length - start, 500);
                  _logger.LogError("Failed to parse rating percent for {Url}. Context: {Context}", url, html.Substring(start, len));
