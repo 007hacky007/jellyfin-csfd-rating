@@ -2,7 +2,24 @@
 
 Adds ČSFD ratings to Jellyfin movies and series. It fetches ratings from ČSFD, caches them locally, and displays them as overlays on your media cards and detail pages.
 
-![Screenshot](https://raw.githubusercontent.com/007hacky007/jellyfin-csfd-rating/master/docs/Screenshot%202025-12-14%20at%2022.19.56.png)
+## Screenshots
+
+[![Item detail page with ČSFD rating overlay](docs/item-detail-thumb.png)](docs/item-detail.png)
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="docs/poster.png">
+        <img src="docs/poster-thumb.png" alt="Poster overlay screenshot" />
+      </a>
+    </td>
+    <td align="center">
+      <a href="docs/settings.png">
+        <img src="docs/settings-thumb.png" alt="Plugin settings page" />
+      </a>
+    </td>
+  </tr>
+</table>
 
 ## Installation
 
