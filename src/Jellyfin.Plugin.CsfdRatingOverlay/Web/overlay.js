@@ -308,36 +308,14 @@
     return false;
   }
 
-  function getDetailTypeState(el) {
-    const candidates = [];
-    const detailPage = el.closest ? el.closest('.itemDetailPage') : null;
-    if (detailPage) {
-        candidates.push(detailPage);
+  function isDetailPageCollection() {
+    // The .btnPlaystate button on detail pages carries data-type (e.g. "BoxSet", "Movie", "Series")
+    const btn = document.querySelector('.mainDetailButtons .btnPlaystate[data-type]');
+    if (btn) {
+        const type = btn.getAttribute('data-type').toLowerCase();
+        return type !== 'movie' && type !== 'series';
     }
-
-    let node = el.parentElement;
-    while (node && node !== document.body) {
-        if (node.getAttribute && (node.hasAttribute('data-type') || node.hasAttribute('data-itemtype'))) {
-            candidates.push(node);
-        }
-        node = node.parentElement;
-    }
-
-    for (const candidate of candidates) {
-        const type = candidate.getAttribute('data-type') || candidate.getAttribute('data-itemtype');
-        if (!type) {
-            continue;
-        }
-
-        const lower = type.toLowerCase();
-        if (lower === 'movie' || lower === 'series') {
-            return 'supported';
-        }
-
-        return 'unsupported';
-    }
-
-    return 'unknown';
+    return false;
   }
 
   function prepareCard(el) {
@@ -442,19 +420,18 @@
 
   function prepareDetail(el) {
     if (overlayDetailEnabled !== true) return;
-    const typeState = getDetailTypeState(el);
+
+    if (isDetailPageCollection()) {
+        console.debug(logPrefix, 'prepareDetail: Skipping non-movie/series detail page');
+        const existing = el.querySelector('.csfd-detail-rating');
+        if (existing) existing.remove();
+        rendered.delete(el);
+        return;
+    }
 
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
-        return;
-    }
-
-    if (typeState === 'unsupported') {
-        console.debug(logPrefix, 'prepareDetail: Skipping unsupported item type for', id);
-        const existing = el.querySelector('.csfd-detail-rating');
-        if (existing) existing.remove();
-        rendered.delete(el);
         return;
     }
 
