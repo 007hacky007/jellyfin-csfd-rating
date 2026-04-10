@@ -296,6 +296,29 @@
     return false;
   }
 
+  function isValidDetailType() {
+    // Check for type in the detail page DOM structure
+    // Jellyfin stores item type in various places on detail pages
+    const detailPage = document.querySelector('.itemDetailPage');
+    if (detailPage) {
+        const type = detailPage.getAttribute('data-type') || detailPage.getAttribute('data-itemtype');
+        if (type) {
+            const lower = type.toLowerCase();
+            return lower === 'movie' || lower === 'series';
+        }
+    }
+    // Fallback: check for collection-specific elements
+    // Collections have a children section with items
+    const isCollection = document.querySelector('.childrenItemsContainer .items') !== null ||
+                         document.querySelector('.collectionItems') !== null;
+    if (isCollection) {
+        return false;
+    }
+    // Default to true for movies/series if we can't determine type
+    // (better to show rating than hide it for valid items)
+    return true;
+  }
+
   function prepareCard(el) {
     if (overlayPosterEnabled === false) {
         const container = ensureContainer(el);
@@ -398,6 +421,16 @@
 
   function prepareDetail(el) {
     if (overlayDetailEnabled !== true) return;
+
+    // Skip collections and other unsupported types
+    if (!isValidDetailType()) {
+        console.debug(logPrefix, 'prepareDetail: Skipping unsupported item type (collection?)');
+        // Clean up any existing rating element from previous page
+        const existing = el.querySelector('.csfd-detail-rating');
+        if (existing) existing.remove();
+        return;
+    }
+
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
