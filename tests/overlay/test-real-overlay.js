@@ -389,6 +389,35 @@ async function runTests() {
         assert(env.getDetailCount() === 0, 'No detail when fetch fails and localStorage=false');
     }
 
+    // ----------------------------------------------------------
+    currentTest = '13. BoxSet detail page never renders CSFD detail rating';
+    console.log(`\n${currentTest}`);
+    {
+        const env = await createEnv({
+            configResponse: true,
+            url: 'http://localhost/web/index.html#!/details?id=' + TEST_ID_RAW + '&serverId=abc',
+            bodyHtml: '<div class="itemDetailPage" data-type="BoxSet"><div class="itemMiscInfo itemMiscInfo-primary"></div></div>',
+            sessionCache: { [TEST_ID_DASHED]: TEST_RATING }
+        });
+        await env.flush();
+        assert(env.getDetailCount() === 0, 'Collection detail page stays clean');
+    }
+
+    // ----------------------------------------------------------
+    currentTest = '14. Movie detail page still renders even with child item sections';
+    console.log(`\n${currentTest}`);
+    {
+        const env = await createEnv({
+            configResponse: true,
+            url: 'http://localhost/web/index.html#!/details?id=' + TEST_ID_RAW + '&serverId=abc',
+            bodyHtml: '<div class="itemDetailPage" data-type="Movie"><div class="childrenItemsContainer"><div class="items"></div></div><div class="itemMiscInfo itemMiscInfo-primary"></div></div>',
+            sessionCache: { [TEST_ID_DASHED]: TEST_RATING }
+        });
+        await env.flush();
+        assert(env.getDetailCount() === 1, 'Movie detail page still renders rating');
+        assert(env.getDetailText() !== null && env.getDetailText().includes('7.4'), 'Movie detail page shows correct rating');
+    }
+
     // ============================================================
     console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
     process.exit(failed > 0 ? 1 : 0);

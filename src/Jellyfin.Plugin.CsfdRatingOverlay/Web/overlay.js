@@ -139,9 +139,21 @@
               localStorage.setItem('csfdDetailIconStyle', detailIconStyle);
               if (overlayDetailEnabled === true) {
                   document.querySelectorAll(detailSelector).forEach(function(el) {
-                      if (cache.has(getItemId(el))) {
-                          injectDetailRating(el, cache.get(getItemId(el)));
-                      } else {
+                      const typeState = getDetailTypeState(el);
+                      if (typeState === 'unsupported') {
+                          const existing = el.querySelector('.csfd-detail-rating');
+                          if (existing) existing.remove();
+                          return;
+                      }
+
+                      const id = getItemId(el);
+                      if (!id) {
+                          return;
+                      }
+
+                      if (cache.has(id)) {
+                          injectDetailRating(el, cache.get(id));
+                      } else if (typeState === 'supported') {
                           injectDetailRating(el, null);
                       }
                   });
@@ -296,6 +308,16 @@
     return false;
   }
 
+  function isDetailPageCollection() {
+    // The .btnPlaystate button on detail pages carries data-type (e.g. "BoxSet", "Movie", "Series")
+    const btn = document.querySelector('.mainDetailButtons .btnPlaystate[data-type]');
+    if (btn) {
+        const type = btn.getAttribute('data-type').toLowerCase();
+        return type !== 'movie' && type !== 'series';
+    }
+    return false;
+  }
+
   function prepareCard(el) {
     if (overlayPosterEnabled === false) {
         const container = ensureContainer(el);
@@ -398,6 +420,15 @@
 
   function prepareDetail(el) {
     if (overlayDetailEnabled !== true) return;
+
+    if (isDetailPageCollection()) {
+        console.debug(logPrefix, 'prepareDetail: Skipping non-movie/series detail page');
+        const existing = el.querySelector('.csfd-detail-rating');
+        if (existing) existing.remove();
+        rendered.delete(el);
+        return;
+    }
+
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
@@ -418,7 +449,9 @@
     if (cache.has(id)) {
         injectDetailRating(el, cache.get(id));
     } else {
-        injectDetailRating(el, null);
+        if (typeState === 'supported') {
+            injectDetailRating(el, null);
+        }
         queueFetch(id);
     }
   }
@@ -551,7 +584,7 @@
     if (overlayDetailEnabled) {
         document.querySelectorAll(detailSelector).forEach(el => {
             const id = getItemId(el);
-            if (id && map[id]) {
+            if (id && map[id] && getDetailTypeState(el) !== 'unsupported') {
                 injectDetailRating(el, map[id]);
             }
         });
