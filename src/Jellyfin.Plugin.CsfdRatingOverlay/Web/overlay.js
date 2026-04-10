@@ -139,9 +139,21 @@
               localStorage.setItem('csfdDetailIconStyle', detailIconStyle);
               if (overlayDetailEnabled === true) {
                   document.querySelectorAll(detailSelector).forEach(function(el) {
-                      if (cache.has(getItemId(el))) {
-                          injectDetailRating(el, cache.get(getItemId(el)));
-                      } else {
+                      const typeState = getDetailTypeState(el);
+                      if (typeState === 'unsupported') {
+                          const existing = el.querySelector('.csfd-detail-rating');
+                          if (existing) existing.remove();
+                          return;
+                      }
+
+                      const id = getItemId(el);
+                      if (!id) {
+                          return;
+                      }
+
+                      if (cache.has(id)) {
+                          injectDetailRating(el, cache.get(id));
+                      } else if (typeState === 'supported') {
                           injectDetailRating(el, null);
                       }
                   });
@@ -296,27 +308,36 @@
     return false;
   }
 
-  function isValidDetailType() {
-    // Check for type in the detail page DOM structure
-    // Jellyfin stores item type in various places on detail pages
-    const detailPage = document.querySelector('.itemDetailPage');
+  function getDetailTypeState(el) {
+    const candidates = [];
+    const detailPage = el.closest ? el.closest('.itemDetailPage') : null;
     if (detailPage) {
-        const type = detailPage.getAttribute('data-type') || detailPage.getAttribute('data-itemtype');
-        if (type) {
-            const lower = type.toLowerCase();
-            return lower === 'movie' || lower === 'series';
+        candidates.push(detailPage);
+    }
+
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+        if (node.getAttribute && (node.hasAttribute('data-type') || node.hasAttribute('data-itemtype'))) {
+            candidates.push(node);
         }
+        node = node.parentElement;
     }
-    // Fallback: check for collection-specific elements
-    // Collections have a children section with items
-    const isCollection = document.querySelector('.childrenItemsContainer .items') !== null ||
-                         document.querySelector('.collectionItems') !== null;
-    if (isCollection) {
-        return false;
+
+    for (const candidate of candidates) {
+        const type = candidate.getAttribute('data-type') || candidate.getAttribute('data-itemtype');
+        if (!type) {
+            continue;
+        }
+
+        const lower = type.toLowerCase();
+        if (lower === 'movie' || lower === 'series') {
+            return 'supported';
+        }
+
+        return 'unsupported';
     }
-    // Default to true for movies/series if we can't determine type
-    // (better to show rating than hide it for valid items)
-    return true;
+
+    return 'unknown';
   }
 
   function prepareCard(el) {
@@ -421,19 +442,19 @@
 
   function prepareDetail(el) {
     if (overlayDetailEnabled !== true) return;
-
-    // Skip collections and other unsupported types
-    if (!isValidDetailType()) {
-        console.debug(logPrefix, 'prepareDetail: Skipping unsupported item type (collection?)');
-        // Clean up any existing rating element from previous page
-        const existing = el.querySelector('.csfd-detail-rating');
-        if (existing) existing.remove();
-        return;
-    }
+    const typeState = getDetailTypeState(el);
 
     const id = getItemId(el);
     if (!id) {
         console.debug(logPrefix, 'prepareDetail: No ID found for element', el);
+        return;
+    }
+
+    if (typeState === 'unsupported') {
+        console.debug(logPrefix, 'prepareDetail: Skipping unsupported item type for', id);
+        const existing = el.querySelector('.csfd-detail-rating');
+        if (existing) existing.remove();
+        rendered.delete(el);
         return;
     }
 
@@ -451,7 +472,9 @@
     if (cache.has(id)) {
         injectDetailRating(el, cache.get(id));
     } else {
-        injectDetailRating(el, null);
+        if (typeState === 'supported') {
+            injectDetailRating(el, null);
+        }
         queueFetch(id);
     }
   }
@@ -584,7 +607,7 @@
     if (overlayDetailEnabled) {
         document.querySelectorAll(detailSelector).forEach(el => {
             const id = getItemId(el);
-            if (id && map[id]) {
+            if (id && map[id] && getDetailTypeState(el) !== 'unsupported') {
                 injectDetailRating(el, map[id]);
             }
         });
