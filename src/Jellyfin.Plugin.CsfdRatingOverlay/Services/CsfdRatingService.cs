@@ -41,7 +41,7 @@ public class CsfdRatingService
 
     public async Task<CsfdRatingData> GetAsync(string itemId, bool enqueueIfMissing, CancellationToken cancellationToken)
     {
-        var normalizedItemId = NormalizeItemId(itemId);
+        var normalizedItemId = CsfdItemIds.Normalize(itemId);
         var entry = await _cacheStore.GetAsync(normalizedItemId, cancellationToken).ConfigureAwait(false);
         if (entry == null)
         {
@@ -63,7 +63,7 @@ public class CsfdRatingService
     public async Task<IReadOnlyDictionary<string, CsfdRatingData>> GetBatchAsync(IEnumerable<string> itemIds, bool enqueueIfMissing, CancellationToken cancellationToken)
     {
         var list = itemIds.ToArray();
-        var normalizedIds = list.Select(NormalizeItemId).ToArray();
+        var normalizedIds = list.Select(CsfdItemIds.Normalize).ToArray();
         var map = await _cacheStore.GetManyAsync(normalizedIds, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<string, CsfdRatingData>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < list.Length; i++)
@@ -92,7 +92,7 @@ public class CsfdRatingService
     {
         _queue.Enqueue(new CsfdFetchRequest
         {
-            ItemId = NormalizeItemId(itemId),
+            ItemId = CsfdItemIds.Normalize(itemId),
             Force = force,
             Fingerprint = fingerprint,
             Attempt = 0
@@ -107,18 +107,14 @@ public class CsfdRatingService
 
     public async Task<CsfdPluginStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
+        var items = GetSupportedLibraryItems();
         var stats = await _cacheStore.GetStatsAsync(cancellationToken).ConfigureAwait(false);
-        var totalItems = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-            Recursive = true
-        }).Count;
 
         return new CsfdPluginStatus
         {
             QueueSize = _queue.Count,
             IsPaused = _queue.IsPaused,
-            TotalLibraryItems = totalItems,
+            TotalLibraryItems = items.Count,
             CacheStats = stats,
             InjectionStatus = _injectionStatus,
             InjectionMessage = _injectionMessage
@@ -132,19 +128,18 @@ public class CsfdRatingService
 
     public async Task<int> BackfillLibraryAsync(CancellationToken cancellationToken)
     {
-        var items = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-            Recursive = true
-        });
+        var items = GetSupportedLibraryItems();
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var surviving = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
+        var byId = surviving.ToDictionary(e => CsfdItemIds.Normalize(e.ItemId), StringComparer.OrdinalIgnoreCase);
 
         var now = DateTimeOffset.UtcNow;
         var enqueued = 0;
         foreach (var item in items)
         {
             var fingerprint = MetadataFingerprint.Compute(item);
-            var itemId = NormalizeItemId(item.Id.ToString());
-            var entry = await _cacheStore.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var itemId = CsfdItemIds.Normalize(item.Id.ToString());
+            byId.TryGetValue(itemId, out var entry);
             if (ShouldQueue(item, entry, fingerprint, now))
             {
                 Enqueue(itemId, false, fingerprint);
@@ -156,45 +151,47 @@ public class CsfdRatingService
         return enqueued;
     }
 
-    public async Task<int> RetryNotFoundAsync(CancellationToken cancellationToken)
+    public Task<int> RetryNotFoundAsync(CancellationToken cancellationToken)
     {
-        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.NotFound))
-        {
-            Enqueue(entry.ItemId, true, entry.Fingerprint);
-            count++;
-        }
-
-        _logger.LogInformation("Retrying {Count} not-found entries", count);
-        return count;
+        return RetryByStatusAsync(
+            "not-found",
+            entry => entry.Status == CsfdCacheEntryStatus.NotFound,
+            cancellationToken);
     }
 
-    public async Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
+    public Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
     {
-        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ErrorTransient || e.Status == CsfdCacheEntryStatus.ErrorPermanent))
-        {
-            Enqueue(entry.ItemId, true, entry.Fingerprint);
-            count++;
-        }
-
-        _logger.LogInformation("Retrying {Count} error entries", count);
-        return count;
+        return RetryByStatusAsync(
+            "error",
+            entry => entry.Status == CsfdCacheEntryStatus.ErrorTransient || entry.Status == CsfdCacheEntryStatus.ErrorPermanent,
+            cancellationToken);
     }
 
-    public async Task<int> RetryNoRatingAsync(CancellationToken cancellationToken)
+    public Task<int> RetryNoRatingAsync(CancellationToken cancellationToken)
     {
+        return RetryByStatusAsync(
+            "no-rating",
+            entry => entry.Status == CsfdCacheEntryStatus.ResolvedNoRating,
+            cancellationToken);
+    }
+
+    private async Task<int> RetryByStatusAsync(
+        string label,
+        Func<CsfdCacheEntry, bool> predicate,
+        CancellationToken cancellationToken)
+    {
+        var items = GetSupportedLibraryItems();
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        entries = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
+
         var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ResolvedNoRating))
+        foreach (var entry in entries.Where(predicate))
         {
             Enqueue(entry.ItemId, true, entry.Fingerprint);
             count++;
         }
 
-        _logger.LogInformation("Retrying {Count} no-rating entries", count);
+        _logger.LogInformation("Retrying {Count} {Label} entries", count, label);
         return count;
     }
 
@@ -215,7 +212,7 @@ public class CsfdRatingService
 
         if (Guid.TryParse(normalizedTerm, out var guid))
         {
-            entry = await _cacheStore.GetAsync(NormalizeItemId(guid.ToString()), cancellationToken).ConfigureAwait(false);
+            entry = await _cacheStore.GetAsync(CsfdItemIds.Normalize(guid.ToString()), cancellationToken).ConfigureAwait(false);
         }
 
         if (entry == null)
@@ -270,17 +267,13 @@ public class CsfdRatingService
         var cacheMap = entries.ToDictionary(e => e.ItemId, StringComparer.OrdinalIgnoreCase);
         var allowedStatuses = new HashSet<CsfdCacheEntryStatus>(statuses);
 
-        var items = _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-            Recursive = true
-        });
+        var items = GetSupportedLibraryItems();
 
         var result = new List<ReviewItem>();
 
         foreach (var item in items)
         {
-            var itemId = item.Id.ToString();
+            var itemId = CsfdItemIds.Normalize(item.Id.ToString());
 
             if (cacheMap.TryGetValue(itemId, out var entry))
             {
@@ -342,7 +335,7 @@ public class CsfdRatingService
 
         if (targetItemId == null && Guid.TryParse(itemIdOrTerm, out var parsedGuid))
         {
-            targetItemId = NormalizeItemId(parsedGuid.ToString());
+            targetItemId = CsfdItemIds.Normalize(parsedGuid.ToString());
         }
 
         if (targetItemId == null)
@@ -421,7 +414,7 @@ public class CsfdRatingService
             }
         }
 
-        var normalizedItemId = NormalizeItemId(itemId);
+        var normalizedItemId = CsfdItemIds.Normalize(itemId);
 
         var entry = new CsfdCacheEntry
         {
@@ -486,16 +479,6 @@ public class CsfdRatingService
         CsfdId = entry.CsfdId
     };
 
-    private static string NormalizeItemId(string itemId)
-    {
-        if (Guid.TryParse(itemId, out var guid))
-        {
-            return guid.ToString();
-        }
-
-        return itemId;
-    }
-
     private async Task PersistLibraryMetadataAsync(BaseItem? item, CsfdCacheEntry entry, CancellationToken cancellationToken)
     {
         if (item is null)
@@ -517,6 +500,98 @@ public class CsfdRatingService
 
         plugin.Configuration.ClientCacheVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         plugin.UpdateConfiguration(plugin.Configuration);
+    }
+
+    private IReadOnlyList<BaseItem> GetSupportedLibraryItems()
+    {
+        return _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
+            Recursive = true
+        });
+    }
+
+    public async Task<int> PruneStaleCacheEntriesAsync(CancellationToken cancellationToken)
+    {
+        var items = GetSupportedLibraryItems();
+        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var beforeCount = entries.Count;
+        var surviving = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
+        return beforeCount - surviving.Count;
+    }
+
+    private async Task<IReadOnlyCollection<CsfdCacheEntry>> PruneStaleCacheEntriesAsync(
+        IReadOnlyCollection<BaseItem> currentItems,
+        IReadOnlyCollection<CsfdCacheEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        var currentIds = currentItems
+            .Select(item => CsfdItemIds.Normalize(item.Id.ToString()))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // If the bulk library snapshot is empty we cannot tell whether the library is
+        // genuinely empty or still loading. Bail out rather than risk wiping the cache;
+        // there is no per-id evidence to fall back on either.
+        if (currentIds.Count == 0)
+        {
+            _logger.LogWarning("Skipping stale CSFD cache prune because the library returned 0 supported items");
+            return entries;
+        }
+
+        // For every entry not in the bulk snapshot, confirm it is actually gone via
+        // ILibraryManager.GetItemById before deleting. The bulk query can return a
+        // partial set during indexing/startup; an entry that is missing from the bulk
+        // result but found by per-id lookup is still in the library and must be kept.
+        var staleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var normalized = CsfdItemIds.Normalize(entry.ItemId);
+            if (currentIds.Contains(normalized))
+            {
+                continue;
+            }
+
+            if (!Guid.TryParse(normalized, out var guid))
+            {
+                continue;
+            }
+
+            if (_libraryManager.GetItemById(guid) is null)
+            {
+                staleIds.Add(normalized);
+            }
+        }
+
+        if (staleIds.Count == 0)
+        {
+            return entries;
+        }
+
+        // Refuse to wipe most of the cache in a single pass. A scenario where >50% of
+        // cached entries fail both the bulk and per-id checks is a much stronger signal
+        // that the library is mid-scan than that the user genuinely deleted that many
+        // items at once. Stale entries we miss here will be deleted by the per-item path
+        // in CsfdFetchProcessor on their next fetch attempt.
+        if (staleIds.Count * 2 > entries.Count)
+        {
+            _logger.LogWarning(
+                "Skipping stale CSFD cache prune: {Stale} of {Total} entries flagged as stale exceeds the 50% safety threshold (library may still be loading)",
+                staleIds.Count,
+                entries.Count);
+            return entries;
+        }
+
+        var deleted = await _cacheStore.DeleteManyAsync(staleIds, cancellationToken).ConfigureAwait(false);
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation("Pruned {Count} stale CSFD cache entries for deleted library items", deleted);
+        }
+
+        return entries
+            .Where(entry => !staleIds.Contains(CsfdItemIds.Normalize(entry.ItemId)))
+            .ToArray();
     }
 
     private (string? Title, int? Year) TryGetLibraryInfo(string itemId)

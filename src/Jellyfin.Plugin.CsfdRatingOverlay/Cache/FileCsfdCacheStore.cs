@@ -126,6 +126,43 @@ public class FileCsfdCacheStore : ICsfdCacheStore, IDisposable
         }
     }
 
+    public async Task<int> DeleteManyAsync(IEnumerable<string> itemIds, CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var map = await LoadInternalAsync(cancellationToken).ConfigureAwait(false);
+            var deleted = 0;
+            foreach (var id in ids)
+            {
+                if (map.Remove(id))
+                {
+                    deleted++;
+                }
+            }
+
+            if (deleted > 0)
+            {
+                await PersistInternalAsync(map, cancellationToken).ConfigureAwait(false);
+            }
+
+            return deleted;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task ClearAllAsync(CancellationToken cancellationToken = default)
     {
         await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);

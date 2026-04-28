@@ -3,12 +3,14 @@ using System.Net.Http;
 using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
+using Jellyfin.Plugin.CsfdRatingOverlay.Infrastructure;
 using Jellyfin.Plugin.CsfdRatingOverlay.Models;
 using Jellyfin.Plugin.CsfdRatingOverlay.Queue;
 using Jellyfin.Plugin.CsfdRatingOverlay.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -435,6 +437,859 @@ public class CsfdRatingServiceTests
 
             Assert.Equal(FetchWorkResultKind.Success, result.Kind);
             Assert.Null(entry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FetchProcessor_ItemRemovedMidFetch_SkipsUpsertAndDeletesCache()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var plugin = CreatePlugin(tempRoot);
+            plugin.UpdateConfiguration(new PluginConfiguration
+            {
+                Enabled = true,
+                NativeRatingTarget = NativeRatingTarget.CommunityRating,
+            });
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Disappearing Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            // Item exists when ProcessAsync starts, then is removed before persist.
+            // Without the guard the upsert would resurrect the entry that OnItemRemoved already deleted.
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.SetupSequence(x => x.GetItemById(itemId))
+                .Returns(movie)
+                .Returns((BaseItem?)null);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            var existingEntry = new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CsfdId = "55555",
+                CreatedUtc = DateTimeOffset.UtcNow,
+                AttemptedUtc = DateTimeOffset.UtcNow,
+                RetryAfterUtc = DateTimeOffset.UtcNow.AddHours(-1)
+            };
+            await cacheStore.UpsertAsync(existingEntry, CancellationToken.None);
+
+            var client = CreateClientReturningPercent(80);
+            var rateLimiter = new CsfdRateLimiter(TimeSpan.Zero, TimeSpan.FromSeconds(1), NullLogger<CsfdRateLimiter>.Instance);
+
+            var processor = new CsfdFetchProcessor(
+                libraryManager.Object,
+                cacheStore,
+                client,
+                rateLimiter,
+                new DebugLogger(),
+                NullLogger<CsfdFetchProcessor>.Instance);
+
+            var result = await processor.ProcessAsync(
+                new CsfdFetchRequest { ItemId = itemId.ToString(), Force = true },
+                CancellationToken.None);
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(FetchWorkResultKind.Success, result.Kind);
+            Assert.Null(entry);
+            Assert.False(movie.UpdateCalled);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_DoesNotMutateCache()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+            libraryManager.Setup(x => x.GetItemById(activeItemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.NotFound,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var status = await sut.GetStatusAsync(CancellationToken.None);
+            var deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(1, status.TotalLibraryItems);
+            Assert.Equal(2, status.CacheStats.TotalEntries);
+            Assert.Equal(1, status.CacheStats.Resolved);
+            Assert.Equal(1, status.CacheStats.NotFound);
+            Assert.NotNull(activeEntry);
+            Assert.NotNull(deletedEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RetryNotFoundAsync_PrunesDeletedLibraryItemsBeforeEnqueue()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.NotFound,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.NotFound,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var processor = new Mock<ICsfdFetchProcessor>();
+            processor
+                .Setup(x => x.ProcessAsync(It.IsAny<CsfdFetchRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(FetchWorkResult.Success);
+            var queue = new CsfdFetchQueue(processor.Object, NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.RetryNotFoundAsync(CancellationToken.None);
+            var deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(1, enqueued);
+            Assert.NotNull(activeEntry);
+            Assert.Null(deletedEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BackfillLibraryAsync_PrunesDeletedLibraryItemsBeforeQueueing()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.NotFound,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.BackfillLibraryAsync(CancellationToken.None);
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+            var deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(0, enqueued);
+            Assert.NotNull(activeEntry);
+            Assert.Null(deletedEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BackfillLibraryAsync_SkipsPruneWhenLibraryReturnsNoItems()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var existingItemId = Guid.NewGuid();
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem>());
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = existingItemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.BackfillLibraryAsync(CancellationToken.None);
+            var entry = await cacheStore.GetAsync(existingItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(0, enqueued);
+            Assert.NotNull(entry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PruneStaleCacheEntriesAsync_KeepsEntriesFoundViaGetItemById()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            // Simulates a partial library load: bulk GetItemList only reports one item,
+            // but the cached entries still exist according to per-id GetItemById.
+            // Per-id verification must keep the cached entries.
+            var bulkItem = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Bulk Item",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Returns(new List<BaseItem> { bulkItem });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            var cachedIds = new List<Guid>();
+            for (var i = 0; i < 30; i++)
+            {
+                var id = Guid.NewGuid();
+                cachedIds.Add(id);
+                var movie = new TestMovie
+                {
+                    Id = id,
+                    Name = $"Cached {i}",
+                    ProductionYear = 2024,
+                    ProviderIds = new Dictionary<string, string>()
+                };
+                libraryManager.Setup(x => x.GetItemById(id)).Returns(movie);
+                await cacheStore.UpsertAsync(new CsfdCacheEntry
+                {
+                    ItemId = id.ToString(),
+                    Status = CsfdCacheEntryStatus.Resolved,
+                    CreatedUtc = DateTimeOffset.UtcNow
+                }, CancellationToken.None);
+            }
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var deleted = await sut.PruneStaleCacheEntriesAsync(CancellationToken.None);
+
+            Assert.Equal(0, deleted);
+            foreach (var id in cachedIds)
+            {
+                Assert.NotNull(await cacheStore.GetAsync(id.ToString(), CancellationToken.None));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PruneStaleCacheEntriesAsync_DeletesEntriesUnknownToGetItemById()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            // User deleted some movies while the plugin was off. Bulk GetItemList
+            // returns the surviving items; per-id GetItemById returns null for the
+            // rest. Stale entries must be pruned, but the deleted ratio stays under
+            // the 50% safety threshold so the guardrail does not engage.
+            var liveItems = new List<BaseItem>();
+            var libraryManager = new Mock<ILibraryManager>();
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            for (var i = 0; i < 30; i++)
+            {
+                var id = Guid.NewGuid();
+                var movie = new TestMovie
+                {
+                    Id = id,
+                    Name = $"Live {i}",
+                    ProductionYear = 2024,
+                    ProviderIds = new Dictionary<string, string>()
+                };
+                liveItems.Add(movie);
+                libraryManager.Setup(x => x.GetItemById(id)).Returns(movie);
+                await cacheStore.UpsertAsync(new CsfdCacheEntry
+                {
+                    ItemId = id.ToString(),
+                    Status = CsfdCacheEntryStatus.Resolved,
+                    CreatedUtc = DateTimeOffset.UtcNow
+                }, CancellationToken.None);
+            }
+
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Returns(liveItems);
+
+            var deletedIds = new List<Guid>();
+            for (var i = 0; i < 10; i++)
+            {
+                var id = Guid.NewGuid();
+                deletedIds.Add(id);
+                await cacheStore.UpsertAsync(new CsfdCacheEntry
+                {
+                    ItemId = id.ToString(),
+                    Status = CsfdCacheEntryStatus.Resolved,
+                    CreatedUtc = DateTimeOffset.UtcNow
+                }, CancellationToken.None);
+            }
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var deleted = await sut.PruneStaleCacheEntriesAsync(CancellationToken.None);
+
+            Assert.Equal(10, deleted);
+            foreach (var live in liveItems)
+            {
+                Assert.NotNull(await cacheStore.GetAsync(live.Id.ToString(), CancellationToken.None));
+            }
+            foreach (var id in deletedIds)
+            {
+                Assert.Null(await cacheStore.GetAsync(id.ToString(), CancellationToken.None));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PruneStaleCacheEntriesAsync_SkipsWhenStaleRatioExceedsHalfThreshold()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            // Library is still loading: bulk reports a single item, and per-id lookup
+            // returns null for everything else. Without the guardrail this would wipe
+            // most of the cache. The guardrail must skip the prune entirely.
+            var liveItem = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Bulk Item",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Returns(new List<BaseItem> { liveItem });
+            libraryManager.Setup(x => x.GetItemById(liveItem.Id)).Returns(liveItem);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = liveItem.Id.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var possiblyStaleIds = new List<Guid>();
+            for (var i = 0; i < 20; i++)
+            {
+                var id = Guid.NewGuid();
+                possiblyStaleIds.Add(id);
+                await cacheStore.UpsertAsync(new CsfdCacheEntry
+                {
+                    ItemId = id.ToString(),
+                    Status = CsfdCacheEntryStatus.Resolved,
+                    CreatedUtc = DateTimeOffset.UtcNow
+                }, CancellationToken.None);
+            }
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var deleted = await sut.PruneStaleCacheEntriesAsync(CancellationToken.None);
+
+            Assert.Equal(0, deleted);
+            Assert.NotNull(await cacheStore.GetAsync(liveItem.Id.ToString(), CancellationToken.None));
+            foreach (var id in possiblyStaleIds)
+            {
+                Assert.NotNull(await cacheStore.GetAsync(id.ToString(), CancellationToken.None));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RetryErrorsAsync_PrunesDeletedLibraryItemsBeforeEnqueue()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.ErrorTransient,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.ErrorPermanent,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.RetryErrorsAsync(CancellationToken.None);
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+            var deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(1, enqueued);
+            Assert.NotNull(activeEntry);
+            Assert.Null(deletedEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RetryNoRatingAsync_PrunesDeletedLibraryItemsBeforeEnqueue()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.ResolvedNoRating,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.RetryNoRatingAsync(CancellationToken.None);
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+            var deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(1, enqueued);
+            Assert.NotNull(activeEntry);
+            Assert.Null(deletedEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HostedService_ItemRemoved_DeletesCacheEntry()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var itemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = itemId,
+                Name = "Removed Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var ratingService = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+            var hostedService = new CsfdHostedService(
+                queue,
+                ratingService,
+                libraryManager.Object,
+                cacheStore,
+                NullLogger<CsfdHostedService>.Instance);
+
+            await hostedService.StartAsync(CancellationToken.None);
+            libraryManager.Raise(x => x.ItemRemoved += null, libraryManager.Object, new ItemChangeEventArgs { Item = movie });
+
+            CsfdCacheEntry? entry = null;
+            for (var i = 0; i < 40; i++)
+            {
+                entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+                if (entry is null)
+                {
+                    break;
+                }
+
+                await Task.Delay(50);
+            }
+
+            Assert.Null(entry);
+
+            await hostedService.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HostedService_ItemRemoved_IgnoresUnsupportedItemTypes()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var itemId = Guid.NewGuid();
+            var episode = new Episode
+            {
+                Id = itemId,
+                Name = "Removed Episode",
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = itemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var ratingService = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+            var hostedService = new CsfdHostedService(
+                queue,
+                ratingService,
+                libraryManager.Object,
+                cacheStore,
+                NullLogger<CsfdHostedService>.Instance);
+
+            await hostedService.StartAsync(CancellationToken.None);
+            libraryManager.Raise(x => x.ItemRemoved += null, libraryManager.Object, new ItemChangeEventArgs { Item = episode });
+
+            var entry = await cacheStore.GetAsync(itemId.ToString(), CancellationToken.None);
+
+            Assert.NotNull(entry);
+
+            await hostedService.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HostedService_StartAsync_PrunesStaleCacheEntries()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var deletedItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = CsfdCacheEntryStatus.Resolved,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = deletedItemId.ToString(),
+                Status = CsfdCacheEntryStatus.NotFound,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var ratingService = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+            var hostedService = new CsfdHostedService(
+                queue,
+                ratingService,
+                libraryManager.Object,
+                cacheStore,
+                NullLogger<CsfdHostedService>.Instance,
+                TimeSpan.Zero);
+
+            await hostedService.StartAsync(CancellationToken.None);
+
+            CsfdCacheEntry? deletedEntry = null;
+            for (var i = 0; i < 40; i++)
+            {
+                deletedEntry = await cacheStore.GetAsync(deletedItemId.ToString(), CancellationToken.None);
+                if (deletedEntry is null)
+                {
+                    break;
+                }
+
+                await Task.Delay(50);
+            }
+
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+
+            Assert.NotNull(activeEntry);
+            Assert.Null(deletedEntry);
+
+            await hostedService.StopAsync(CancellationToken.None);
         }
         finally
         {

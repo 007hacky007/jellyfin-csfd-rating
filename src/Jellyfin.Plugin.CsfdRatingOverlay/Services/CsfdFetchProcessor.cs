@@ -197,6 +197,11 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
         entry.LastError = null;
         entry.RetryAfterUtc = null;
 
+        if (await ItemRemovedDuringFetchAsync(entry.ItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return FetchWorkResult.Success;
+        }
+
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
         await CsfdNativeRatingHelper.PersistMetadataAsync(item, entry, _logger, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Cached CSFD rating for {ItemId} as {Display}", entry.ItemId, display);
@@ -233,6 +238,11 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     private async Task MarkNotFoundAsync(CsfdCacheEntry entry, string query, CancellationToken cancellationToken)
     {
+        if (await ItemRemovedDuringFetchAsync(entry.ItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
         entry.Status = CsfdCacheEntryStatus.NotFound;
         entry.QueryUsed = query;
         entry.LastError = "Not found";
@@ -243,6 +253,11 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     private async Task MarkNoRatingAsync(CsfdCacheEntry entry, BaseItem item, CancellationToken cancellationToken)
     {
+        if (await ItemRemovedDuringFetchAsync(entry.ItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
         entry.Status = CsfdCacheEntryStatus.ResolvedNoRating;
         entry.Percent = null;
         entry.Stars = null;
@@ -256,6 +271,11 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
     private async Task MarkTransientAsync(CsfdCacheEntry entry, Configuration.PluginConfiguration config, string error, CancellationToken cancellationToken)
     {
+        if (await ItemRemovedDuringFetchAsync(entry.ItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
         var backoffMinutes = Math.Min(120, config.CooldownMinMinutes * Math.Pow(2, entry.AttemptCount - 1));
         var retryAfter = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(backoffMinutes);
 
@@ -265,5 +285,21 @@ public class CsfdFetchProcessor : ICsfdFetchProcessor
 
         await _cacheStore.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
         _logger.LogWarning("CSFD fetch transient error for {ItemId}: {Message}", entry.ItemId, error);
+    }
+
+    // Guards against an item being deleted from the library while the fetch was
+    // in-flight (HTTP search/rating). Without this, OnItemRemoved's prior delete
+    // would be overwritten by the upsert below and the stale entry would survive
+    // until the next prune.
+    private async Task<bool> ItemRemovedDuringFetchAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (Guid.TryParse(itemId, out var guid) && _libraryManager.GetItemById(guid) is not null)
+        {
+            return false;
+        }
+
+        await _cacheStore.DeleteAsync(itemId, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Item {ItemId} removed during CSFD fetch; skipped persist", itemId);
+        return true;
     }
 }

@@ -16,5 +16,7 @@ public interface ICsfdCacheStore
 
     Task DeleteAsync(string itemId, CancellationToken cancellationToken = default);
 
+    Task<int> DeleteManyAsync(IEnumerable<string> itemIds, CancellationToken cancellationToken = default);
+
     Task ClearAllAsync(CancellationToken cancellationToken = default);
 }
