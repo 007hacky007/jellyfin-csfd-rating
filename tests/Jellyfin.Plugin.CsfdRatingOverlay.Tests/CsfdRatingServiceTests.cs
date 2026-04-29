@@ -581,6 +581,131 @@ public class CsfdRatingServiceTests
     }
 
     [Fact]
+    public async Task GetStatusAsync_DeduplicatesItemsBySharedPresentationUniqueKey()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            // Two physical Movie rows for the same logical film (alternate versions or
+            // BoxSet/virtual-folder cross-references) plus one independent movie.
+            // Jellyfin's UI collapses these via PresentationUniqueKey when the query
+            // carries a User; our hosted-service code path has no User, so we have to
+            // dedupe on our side. Without the fix Total Library Items would be 3.
+            const string sharedKey = "logical-movie-x";
+            var movieA = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Movie X 4K",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = sharedKey
+            };
+            var movieB = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Movie X 1080p",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = sharedKey
+            };
+            var movieC = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Movie Y",
+                ProductionYear = 2025,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = "logical-movie-y"
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Returns(new List<BaseItem> { movieA, movieB, movieC });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var status = await sut.GetStatusAsync(CancellationToken.None);
+
+            Assert.Equal(2, status.TotalLibraryItems);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BackfillLibraryAsync_DeduplicatesItemsBySharedPresentationUniqueKey()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            // Backfill must not enqueue the same logical movie twice when Jellyfin
+            // returns multiple presentation rows for it.
+            const string sharedKey = "logical-movie";
+            var movieA = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Movie 4K",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = sharedKey
+            };
+            var movieB = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Movie 1080p",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = sharedKey
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Returns(new List<BaseItem> { movieA, movieB });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+
+            var processor = new Mock<ICsfdFetchProcessor>();
+            processor
+                .Setup(x => x.ProcessAsync(It.IsAny<CsfdFetchRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(FetchWorkResult.Success);
+            var queue = new CsfdFetchQueue(processor.Object, NullLogger<CsfdFetchQueue>.Instance);
+
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = await sut.BackfillLibraryAsync(CancellationToken.None);
+
+            Assert.Equal(1, enqueued);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RetryNotFoundAsync_PrunesDeletedLibraryItemsBeforeEnqueue()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));

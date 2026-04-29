@@ -504,11 +504,19 @@ public class CsfdRatingService
 
     private IReadOnlyList<BaseItem> GetSupportedLibraryItems()
     {
+        // Jellyfin's repository only collapses duplicate-row "presentations" of the
+        // same logical item (multi-version files, BoxSet/virtual-folder cross-references)
+        // when the query carries a User. Hosted-service callers like ours have no User,
+        // so the raw result can include hundreds of duplicates. Mirror the UI's behavior
+        // by grouping on PresentationUniqueKey ourselves.
         return _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
             Recursive = true
-        });
+        })
+        .GroupBy(item => item.GetPresentationUniqueKey())
+        .Select(group => group.First())
+        .ToList();
     }
 
     public async Task<int> PruneStaleCacheEntriesAsync(CancellationToken cancellationToken)
