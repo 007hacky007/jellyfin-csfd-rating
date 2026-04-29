@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.Logging;
+using CollectionTypeOptions = MediaBrowser.Model.Entities.CollectionTypeOptions;
 
 namespace Jellyfin.Plugin.CsfdRatingOverlay.Services;
 
@@ -107,15 +108,16 @@ public class CsfdRatingService
 
     public async Task<CsfdPluginStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        var items = GetSupportedLibraryItems();
+        var snapshot = GetSupportedLibraryItems(includeDiagnostics: true);
         var stats = await _cacheStore.GetStatsAsync(cancellationToken).ConfigureAwait(false);
 
         return new CsfdPluginStatus
         {
             QueueSize = _queue.Count,
             IsPaused = _queue.IsPaused,
-            TotalLibraryItems = items.Count,
+            TotalLibraryItems = snapshot.Items.Count,
             CacheStats = stats,
+            LibraryDiagnostics = snapshot.Diagnostics,
             InjectionStatus = _injectionStatus,
             InjectionMessage = _injectionMessage
         };
@@ -128,7 +130,7 @@ public class CsfdRatingService
 
     public async Task<int> BackfillLibraryAsync(CancellationToken cancellationToken)
     {
-        var items = GetSupportedLibraryItems();
+        var items = GetSupportedLibraryItems().Items;
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         var surviving = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
         var byId = surviving.ToDictionary(e => CsfdItemIds.Normalize(e.ItemId), StringComparer.OrdinalIgnoreCase);
@@ -180,7 +182,7 @@ public class CsfdRatingService
         Func<CsfdCacheEntry, bool> predicate,
         CancellationToken cancellationToken)
     {
-        var items = GetSupportedLibraryItems();
+        var items = GetSupportedLibraryItems().Items;
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         entries = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
 
@@ -267,7 +269,7 @@ public class CsfdRatingService
         var cacheMap = entries.ToDictionary(e => e.ItemId, StringComparer.OrdinalIgnoreCase);
         var allowedStatuses = new HashSet<CsfdCacheEntryStatus>(statuses);
 
-        var items = GetSupportedLibraryItems();
+        var items = GetSupportedLibraryItems().Items;
 
         var result = new List<ReviewItem>();
 
@@ -502,26 +504,58 @@ public class CsfdRatingService
         plugin.UpdateConfiguration(plugin.Configuration);
     }
 
-    private IReadOnlyList<BaseItem> GetSupportedLibraryItems()
+    private LibraryItemSnapshot GetSupportedLibraryItems(bool includeDiagnostics = false)
     {
-        // Jellyfin's repository only collapses duplicate-row "presentations" of the
-        // same logical item (multi-version files, BoxSet/virtual-folder cross-references)
-        // when the query carries a User. Hosted-service callers like ours have no User,
-        // so the raw result can include hundreds of duplicates. Mirror the UI's behavior
-        // by grouping on PresentationUniqueKey ourselves.
-        return _libraryManager.GetItemList(new InternalItemsQuery
+        var supportedTopParentIds = GetSupportedTopParentIds();
+        var query = new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
-            Recursive = true
-        })
-        .GroupBy(item => item.GetPresentationUniqueKey())
-        .Select(group => group.First())
-        .ToList();
+            Recursive = true,
+            SourceTypes = new[] { SourceType.Library },
+            IsVirtualItem = false,
+            IsMissing = false,
+            IsPlaceHolder = false,
+            HasDeadParentId = false
+        };
+
+        if (supportedTopParentIds.Count > 0)
+        {
+            query.TopParentIds = supportedTopParentIds.ToArray();
+        }
+
+        var queryItems = _libraryManager.GetItemList(query);
+        var diagnostics = new CsfdLibraryDiagnostics
+        {
+            SupportedMediaLibraries = supportedTopParentIds.Count,
+            RawQueryItems = queryItems.Count
+        };
+
+        var items = FilterSupportedLibraryItems(queryItems, supportedTopParentIds, diagnostics);
+
+        if (includeDiagnostics)
+        {
+            diagnostics.FinalItems = items.Count;
+            _logger.LogInformation(
+                "CSFD library diagnostics: supported libraries={SupportedLibraries}, raw items={RawItems}, final items={FinalItems}, excluded unsupported-library={UnsupportedLibrary}, non-library={NonLibrary}, unsupported-type={UnsupportedType}, virtual={Virtual}, missing={Missing}, placeholder={Placeholder}, dead-parent={DeadParent}, duplicate-presentation={DuplicatePresentation}",
+                diagnostics.SupportedMediaLibraries,
+                diagnostics.RawQueryItems,
+                diagnostics.FinalItems,
+                diagnostics.UnsupportedLibraryExcluded,
+                diagnostics.NonLibrarySourceExcluded,
+                diagnostics.UnsupportedTypeExcluded,
+                diagnostics.VirtualExcluded,
+                diagnostics.MissingExcluded,
+                diagnostics.PlaceholderExcluded,
+                diagnostics.DeadParentExcluded,
+                diagnostics.DuplicatePresentationExcluded);
+        }
+
+        return new LibraryItemSnapshot(items, diagnostics);
     }
 
     public async Task<int> PruneStaleCacheEntriesAsync(CancellationToken cancellationToken)
     {
-        var items = GetSupportedLibraryItems();
+        var items = GetSupportedLibraryItems().Items;
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         var beforeCount = entries.Count;
         var surviving = await PruneStaleCacheEntriesAsync(items, entries, cancellationToken).ConfigureAwait(false);
@@ -612,4 +646,124 @@ public class CsfdRatingService
         var item = _libraryManager.GetItemById(guid);
         return item == null ? (null, null) : (item.Name, item.ProductionYear);
     }
+
+    private IReadOnlyCollection<Guid> GetSupportedTopParentIds()
+    {
+        var folders = _libraryManager.GetVirtualFolders() ?? Enumerable.Empty<MediaBrowser.Model.Entities.VirtualFolderInfo>();
+
+        return folders
+            .Where(folder => folder.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.tvshows or CollectionTypeOptions.mixed)
+            .Select(folder => Guid.TryParse(folder.ItemId, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+    }
+
+    private IReadOnlyList<BaseItem> FilterSupportedLibraryItems(
+        IReadOnlyCollection<BaseItem> queryItems,
+        IReadOnlyCollection<Guid> supportedTopParentIds,
+        CsfdLibraryDiagnostics diagnostics)
+    {
+        var result = new List<BaseItem>();
+        var presentationKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in queryItems)
+        {
+            if (supportedTopParentIds.Count > 0 && !IsInSupportedLibrary(item, supportedTopParentIds))
+            {
+                diagnostics.UnsupportedLibraryExcluded++;
+                continue;
+            }
+
+            if (GetSourceType(item) != SourceType.Library)
+            {
+                diagnostics.NonLibrarySourceExcluded++;
+                continue;
+            }
+
+            if (item is not Movie and not Series)
+            {
+                diagnostics.UnsupportedTypeExcluded++;
+                continue;
+            }
+
+            if (item.IsVirtualItem)
+            {
+                diagnostics.VirtualExcluded++;
+                continue;
+            }
+
+            if (GetBooleanProperty(item, "IsMissing"))
+            {
+                diagnostics.MissingExcluded++;
+                continue;
+            }
+
+            if (GetBooleanProperty(item, "IsPlaceHolder"))
+            {
+                diagnostics.PlaceholderExcluded++;
+                continue;
+            }
+
+            if (GetBooleanProperty(item, "HasDeadParentId"))
+            {
+                diagnostics.DeadParentExcluded++;
+                continue;
+            }
+
+            // Jellyfin's repository only collapses duplicate-row "presentations" of the
+            // same logical item when the query carries a User. Hosted-service callers
+            // like ours have no User, so mirror the UI's behavior ourselves.
+            var presentationKey = item.GetPresentationUniqueKey();
+            if (!string.IsNullOrWhiteSpace(presentationKey) && !presentationKeys.Add(presentationKey))
+            {
+                diagnostics.DuplicatePresentationExcluded++;
+                continue;
+            }
+
+            result.Add(item);
+        }
+
+        diagnostics.FinalItems = result.Count;
+        return result;
+    }
+
+    private static bool IsInSupportedLibrary(BaseItem item, IReadOnlyCollection<Guid> supportedTopParentIds)
+    {
+        if (supportedTopParentIds.Contains(item.Id) || supportedTopParentIds.Contains(item.ParentId))
+        {
+            return true;
+        }
+
+        try
+        {
+            var topParent = item.GetTopParent();
+            return topParent is not null && supportedTopParentIds.Contains(topParent.Id);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool GetBooleanProperty(BaseItem item, string propertyName)
+    {
+        var property = item.GetType().GetProperty(propertyName);
+        return property?.PropertyType == typeof(bool) && property.GetValue(item) is true;
+    }
+
+    private static SourceType GetSourceType(BaseItem item)
+    {
+        try
+        {
+            return item.SourceType;
+        }
+        catch
+        {
+            // Unit-test items are not attached to a full Jellyfin runtime and can throw
+            // while resolving SourceType. Real library queries already filter SourceTypes.
+            return SourceType.Library;
+        }
+    }
+
+    private sealed record LibraryItemSnapshot(IReadOnlyList<BaseItem> Items, CsfdLibraryDiagnostics Diagnostics);
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.CsfdRatingOverlay.Cache;
 using Jellyfin.Plugin.CsfdRatingOverlay.Client;
 using Jellyfin.Plugin.CsfdRatingOverlay.Configuration;
@@ -12,6 +13,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -638,6 +640,79 @@ public class CsfdRatingServiceTests
             var status = await sut.GetStatusAsync(CancellationToken.None);
 
             Assert.Equal(2, status.TotalLibraryItems);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_ScopesQueryToRealMediaLibrariesAndExcludesInternalRows()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var movieLibraryId = Guid.NewGuid();
+            var collectionLibraryId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = Guid.NewGuid(),
+                Name = "Real Movie",
+                ProductionYear = 2024,
+                ParentId = movieLibraryId,
+                ProviderIds = new Dictionary<string, string>(),
+                PresentationUniqueKey = "real-movie"
+            };
+
+            InternalItemsQuery? capturedQuery = null;
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetVirtualFolders()).Returns(new List<VirtualFolderInfo>
+            {
+                new VirtualFolderInfo
+                {
+                    ItemId = movieLibraryId.ToString(),
+                    CollectionType = CollectionTypeOptions.movies
+                },
+                new VirtualFolderInfo
+                {
+                    ItemId = collectionLibraryId.ToString(),
+                    CollectionType = CollectionTypeOptions.boxsets
+                }
+            });
+            libraryManager.Setup(x => x.GetItemList(It.IsAny<InternalItemsQuery>()))
+                .Callback<InternalItemsQuery>(query => capturedQuery = query)
+                .Returns(new List<BaseItem> { movie });
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            var queue = new CsfdFetchQueue(Mock.Of<ICsfdFetchProcessor>(), NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningPercent(75),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var status = await sut.GetStatusAsync(CancellationToken.None);
+
+            Assert.NotNull(capturedQuery);
+            Assert.Contains(movieLibraryId, capturedQuery.TopParentIds);
+            Assert.DoesNotContain(collectionLibraryId, capturedQuery.TopParentIds);
+            Assert.Equal(new[] { BaseItemKind.Movie, BaseItemKind.Series }, capturedQuery.IncludeItemTypes);
+            Assert.Equal(new[] { SourceType.Library }, capturedQuery.SourceTypes);
+            Assert.False(capturedQuery.IsVirtualItem);
+            Assert.False(capturedQuery.IsMissing);
+            Assert.False(capturedQuery.IsPlaceHolder);
+            Assert.False(capturedQuery.HasDeadParentId);
+            Assert.Equal(1, status.TotalLibraryItems);
+            Assert.Equal(1, status.LibraryDiagnostics.SupportedMediaLibraries);
+            Assert.Equal(1, status.LibraryDiagnostics.RawQueryItems);
+            Assert.Equal(1, status.LibraryDiagnostics.FinalItems);
         }
         finally
         {

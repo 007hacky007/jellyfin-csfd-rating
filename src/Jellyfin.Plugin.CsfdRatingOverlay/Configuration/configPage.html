@@ -115,6 +115,37 @@
                             <span>Total Library Items:</span>
                             <span id="statLibraryTotal" style="font-weight: bold;">-</span>
                         </div>
+                        <div style="margin: 0.75em 0 1em; padding: 0.75em; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                            <div style="font-weight: bold; margin-bottom: 0.5em;">Library Query Diagnostics</div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Supported Media Libraries:</span>
+                                <span id="diagSupportedLibraries" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Raw Query Items:</span>
+                                <span id="diagRawItems" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Filtered Items:</span>
+                                <span id="diagFinalItems" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Excluded Outside Media Libraries:</span>
+                                <span id="diagUnsupportedLibrary" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Excluded Non-Library Source:</span>
+                                <span id="diagNonLibrary" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35em;">
+                                <span>Excluded Virtual/Missing/Dead:</span>
+                                <span id="diagInvalidItems" style="font-weight: bold;">-</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Excluded Duplicate Presentations:</span>
+                                <span id="diagDuplicatePresentation" style="font-weight: bold;">-</span>
+                            </div>
+                        </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 0.5em;">
                             <span>Total Cached:</span>
                             <span id="statTotal" style="font-weight: bold;">-</span>
@@ -313,6 +344,14 @@
                     ApiClient.getJSON(ApiClient.getUrl('Plugins/CsfdRatingOverlay/csfd/status')).then(function (status) {
                         document.querySelector('#statQueueSize').textContent = status.QueueSize;
                         document.querySelector('#statLibraryTotal').textContent = status.TotalLibraryItems;
+                        var diag = status.LibraryDiagnostics || {};
+                        document.querySelector('#diagSupportedLibraries').textContent = diag.SupportedMediaLibraries || 0;
+                        document.querySelector('#diagRawItems').textContent = diag.RawQueryItems || 0;
+                        document.querySelector('#diagFinalItems').textContent = diag.FinalItems || 0;
+                        document.querySelector('#diagUnsupportedLibrary').textContent = diag.UnsupportedLibraryExcluded || 0;
+                        document.querySelector('#diagNonLibrary').textContent = diag.NonLibrarySourceExcluded || 0;
+                        document.querySelector('#diagInvalidItems').textContent = (diag.VirtualExcluded || 0) + (diag.MissingExcluded || 0) + (diag.PlaceholderExcluded || 0) + (diag.DeadParentExcluded || 0);
+                        document.querySelector('#diagDuplicatePresentation').textContent = diag.DuplicatePresentationExcluded || 0;
                         document.querySelector('#statTotal').textContent = status.CacheStats.TotalEntries;
                         document.querySelector('#statResolved').textContent = status.CacheStats.Resolved;
                         document.querySelector('#statNoRating').textContent = status.CacheStats.ResolvedNoRating || 0;
