@@ -596,6 +596,83 @@ public class CsfdRatingServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(CsfdCacheEntryStatus.NotFound, "not-found")]
+    [InlineData(CsfdCacheEntryStatus.ErrorTransient, "errors")]
+    [InlineData(CsfdCacheEntryStatus.ErrorPermanent, "errors")]
+    [InlineData(CsfdCacheEntryStatus.ResolvedNoRating, "no-rating")]
+    public async Task RetryActions_DeleteStaleEntriesBeforeEnqueueing(CsfdCacheEntryStatus status, string retryAction)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "csfd-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            CreatePlugin(tempRoot);
+
+            var activeItemId = Guid.NewGuid();
+            var staleItemId = Guid.NewGuid();
+            var movie = new TestMovie
+            {
+                Id = activeItemId,
+                Name = "Active Movie",
+                ProductionYear = 2024,
+                ProviderIds = new Dictionary<string, string>()
+            };
+
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager.Setup(x => x.GetItemById(activeItemId)).Returns(movie);
+
+            var appPaths = CreateAppPathsMock(tempRoot);
+            var cacheStore = new FileCsfdCacheStore(appPaths.Object, NullLogger<FileCsfdCacheStore>.Instance);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = activeItemId.ToString(),
+                Status = status,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await cacheStore.UpsertAsync(new CsfdCacheEntry
+            {
+                ItemId = staleItemId.ToString(),
+                Status = status,
+                CreatedUtc = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+
+            var processor = new Mock<ICsfdFetchProcessor>();
+            processor
+                .Setup(x => x.ProcessAsync(It.IsAny<CsfdFetchRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(FetchWorkResult.Success);
+            var queue = new CsfdFetchQueue(processor.Object, NullLogger<CsfdFetchQueue>.Instance);
+            var sut = new CsfdRatingService(
+                libraryManager.Object,
+                cacheStore,
+                queue,
+                CreateClientReturningNoRating(),
+                NullLogger<CsfdRatingService>.Instance);
+
+            var enqueued = retryAction switch
+            {
+                "not-found" => await sut.RetryNotFoundAsync(CancellationToken.None),
+                "errors" => await sut.RetryErrorsAsync(CancellationToken.None),
+                "no-rating" => await sut.RetryNoRatingAsync(CancellationToken.None),
+                _ => throw new InvalidOperationException($"Unknown retry action {retryAction}")
+            };
+
+            var activeEntry = await cacheStore.GetAsync(activeItemId.ToString(), CancellationToken.None);
+            var staleEntry = await cacheStore.GetAsync(staleItemId.ToString(), CancellationToken.None);
+
+            Assert.Equal(1, enqueued);
+            Assert.NotNull(activeEntry);
+            Assert.Null(staleEntry);
+
+            await queue.DisposeAsync();
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static CsfdClient CreateClientReturningPercent(int percent)
     {
         var handler = new StaticResponseHandler($"""

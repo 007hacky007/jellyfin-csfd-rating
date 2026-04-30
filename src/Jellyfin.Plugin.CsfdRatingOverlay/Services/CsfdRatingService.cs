@@ -156,46 +156,59 @@ public class CsfdRatingService
         return enqueued;
     }
 
-    public async Task<int> RetryNotFoundAsync(CancellationToken cancellationToken)
+    public Task<int> RetryNotFoundAsync(CancellationToken cancellationToken)
     {
-        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.NotFound))
-        {
-            Enqueue(entry.ItemId, true, entry.Fingerprint);
-            count++;
-        }
-
-        _logger.LogInformation("Retrying {Count} not-found entries", count);
-        return count;
+        return RetryByStatusAsync(
+            "not-found",
+            entry => entry.Status == CsfdCacheEntryStatus.NotFound,
+            cancellationToken);
     }
 
-    public async Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
+    public Task<int> RetryErrorsAsync(CancellationToken cancellationToken)
     {
-        var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ErrorTransient || e.Status == CsfdCacheEntryStatus.ErrorPermanent))
-        {
-            Enqueue(entry.ItemId, true, entry.Fingerprint);
-            count++;
-        }
-
-        _logger.LogInformation("Retrying {Count} error entries", count);
-        return count;
+        return RetryByStatusAsync(
+            "error",
+            entry => entry.Status == CsfdCacheEntryStatus.ErrorTransient || entry.Status == CsfdCacheEntryStatus.ErrorPermanent,
+            cancellationToken);
     }
 
-    public async Task<int> RetryNoRatingAsync(CancellationToken cancellationToken)
+    public Task<int> RetryNoRatingAsync(CancellationToken cancellationToken)
+    {
+        return RetryByStatusAsync(
+            "no-rating",
+            entry => entry.Status == CsfdCacheEntryStatus.ResolvedNoRating,
+            cancellationToken);
+    }
+
+    private async Task<int> RetryByStatusAsync(
+        string label,
+        Func<CsfdCacheEntry, bool> predicate,
+        CancellationToken cancellationToken)
     {
         var entries = await _cacheStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var count = 0;
-        foreach (var entry in entries.Where(e => e.Status == CsfdCacheEntryStatus.ResolvedNoRating))
+        var enqueued = 0;
+        var deletedStale = 0;
+
+        foreach (var entry in entries.Where(predicate))
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await DeleteIfStaleRetryEntryAsync(entry, cancellationToken).ConfigureAwait(false))
+            {
+                deletedStale++;
+                continue;
+            }
+
             Enqueue(entry.ItemId, true, entry.Fingerprint);
-            count++;
+            enqueued++;
         }
 
-        _logger.LogInformation("Retrying {Count} no-rating entries", count);
-        return count;
+        if (deletedStale > 0)
+        {
+            _logger.LogInformation("Deleted {Count} stale CSFD cache entries before retrying {Label} entries", deletedStale, label);
+        }
+
+        _logger.LogInformation("Retrying {Count} {Label} entries", enqueued, label);
+        return enqueued;
     }
 
     public Task ClearCacheAsync(CancellationToken cancellationToken)
@@ -494,6 +507,22 @@ public class CsfdRatingService
         }
 
         return itemId;
+    }
+
+    private async Task<bool> DeleteIfStaleRetryEntryAsync(CsfdCacheEntry entry, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(entry.ItemId, out var guid))
+        {
+            return false;
+        }
+
+        if (_libraryManager.GetItemById(guid) is not null)
+        {
+            return false;
+        }
+
+        await _cacheStore.DeleteAsync(entry.ItemId, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async Task PersistLibraryMetadataAsync(BaseItem? item, CsfdCacheEntry entry, CancellationToken cancellationToken)
