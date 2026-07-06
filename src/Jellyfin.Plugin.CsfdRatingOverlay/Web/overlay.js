@@ -308,14 +308,18 @@
     return false;
   }
 
-  function isDetailPageCollection() {
+  // Classify the current detail page: 'supported' (movie/series), 'unsupported'
+  // (e.g. BoxSet/collection), or 'unknown' (type button not rendered yet).
+  function getDetailTypeState() {
     // The .btnPlaystate button on detail pages carries data-type (e.g. "BoxSet", "Movie", "Series")
     const btn = document.querySelector('.mainDetailButtons .btnPlaystate[data-type]');
-    if (btn) {
-        const type = btn.getAttribute('data-type').toLowerCase();
-        return type !== 'movie' && type !== 'series';
-    }
-    return false;
+    if (!btn) return 'unknown';
+    const type = btn.getAttribute('data-type').toLowerCase();
+    return (type === 'movie' || type === 'series') ? 'supported' : 'unsupported';
+  }
+
+  function isDetailPageCollection() {
+    return getDetailTypeState() === 'unsupported';
   }
 
   function prepareCard(el) {
@@ -449,7 +453,7 @@
     if (cache.has(id)) {
         injectDetailRating(el, cache.get(id));
     } else {
-        if (typeState === 'supported') {
+        if (getDetailTypeState() === 'supported') {
             injectDetailRating(el, null);
         }
         queueFetch(id);
