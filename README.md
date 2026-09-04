@@ -4,18 +4,18 @@ Adds ČSFD ratings to Jellyfin movies and series. It fetches ratings from ČSFD,
 
 ## Screenshots
 
-[![Item detail page with ČSFD rating overlay](docs/item-detail-thumb.png)](docs/item-detail.png)
+[![Item detail page with ČSFD rating overlay](docs/item-detail-thumb.webp)](docs/item-detail.webp)
 
 <table>
   <tr>
     <td align="center">
-      <a href="docs/poster.png">
-        <img src="docs/poster-thumb.png" alt="Poster overlay screenshot" />
+      <a href="docs/poster.webp">
+        <img src="docs/poster-thumb.webp" alt="Poster overlay screenshot" />
       </a>
     </td>
     <td align="center">
-      <a href="docs/settings.png">
-        <img src="docs/settings-thumb.png" alt="Plugin settings page" />
+      <a href="docs/settings.webp">
+        <img src="docs/settings-thumb.webp" alt="Plugin settings page" />
       </a>
     </td>
   </tr>
