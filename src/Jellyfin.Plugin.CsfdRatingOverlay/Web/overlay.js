@@ -202,11 +202,17 @@
   `;
   document.head.appendChild(style);
 
+  // Track observed containers so stale (removed-from-DOM) targets can be
+  // released; the IntersectionObserver would otherwise retain them forever
+  // in this SPA, since unobserve() normally only happens on intersection.
+  const observedContainers = new Set();
+
   const intersectionObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const el = entry.target;
       if (!entry.isIntersecting) return;
       intersectionObserver.unobserve(el);
+      observedContainers.delete(el);
       const id = getItemId(el);
       if (!id) return;
       if (cache.has(id)) {
@@ -264,8 +270,25 @@
   }
   window.addEventListener('hashchange', checkDetailNavigation);
   window.addEventListener('popstate', checkDetailNavigation);
-  // Poll as last resort for routers that don't fire events
-  setInterval(checkDetailNavigation, 2000);
+
+  // Release IntersectionObserver targets that were removed from the DOM
+  // without ever intersecting (SPA page swaps), so they can be GC'd.
+  function sweepStaleObservedContainers() {
+      observedContainers.forEach(el => {
+          if (!el.isConnected) {
+              intersectionObserver.unobserve(el);
+              observedContainers.delete(el);
+          }
+      });
+  }
+
+  // Poll as last resort for routers that don't fire events; also reuse the
+  // tick for observer hygiene. checkDetailNavigation() exits immediately
+  // when the detail overlay is disabled.
+  setInterval(() => {
+      checkDetailNavigation();
+      sweepStaleObservedContainers();
+  }, 2000);
 
   function scanNode(root) {
     if (!(root instanceof HTMLElement)) return;
@@ -308,14 +331,18 @@
     return false;
   }
 
-  function isDetailPageCollection() {
+  // Classify the current detail page: 'supported' (movie/series), 'unsupported'
+  // (e.g. BoxSet/collection), or 'unknown' (type button not rendered yet).
+  function getDetailTypeState() {
     // The .btnPlaystate button on detail pages carries data-type (e.g. "BoxSet", "Movie", "Series")
     const btn = document.querySelector('.mainDetailButtons .btnPlaystate[data-type]');
-    if (btn) {
-        const type = btn.getAttribute('data-type').toLowerCase();
-        return type !== 'movie' && type !== 'series';
-    }
-    return false;
+    if (!btn) return 'unknown';
+    const type = btn.getAttribute('data-type').toLowerCase();
+    return (type === 'movie' || type === 'series') ? 'supported' : 'unsupported';
+  }
+
+  function isDetailPageCollection() {
+    return getDetailTypeState() === 'unsupported';
   }
 
   function prepareCard(el) {
@@ -352,6 +379,7 @@
       renderPlaceholder(container);
     }
     intersectionObserver.observe(container);
+    observedContainers.add(container);
   }
 
   function ensureContainer(el) {
@@ -449,7 +477,7 @@
     if (cache.has(id)) {
         injectDetailRating(el, cache.get(id));
     } else {
-        if (typeState === 'supported') {
+        if (getDetailTypeState() === 'supported') {
             injectDetailRating(el, null);
         }
         queueFetch(id);
