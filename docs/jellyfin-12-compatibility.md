@@ -15,7 +15,9 @@ Validation on 2026-09-08:
 - All three Release builds published. The workflow's ZIP, checksum, and manifest scripts were executed locally; archive contents, framework identities, checksums, and server-version artifact selection passed verification.
 - `actionlint` and `git diff --check` passed.
 
-Automatic injection still requires a File Transformation build compatible with the server, or manual injection. No live Jellyfin installation was upgraded, and no release was published during this work.
+Automatic injection on Jellyfin 12.0 uses [File Transformation 3.0.0.0](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases/tag/3.0.0.0), published on 2026-09-08 with a `Release-12.0.0.zip` asset and a `12.0.0.0` target ABI entry in its catalogue. It replaced the Harmony/MonoMod runtime patching with ASP.NET Core middleware and keeps the `PluginInterface.RegisterTransformation(JObject)` contract and the assembly callback returning a `string`, which is what `CsfdHostedService` uses through reflection. No registration change was needed on our side. Two 3.0 behaviour changes are relevant: invalid callback assembly/class/method names now fail without falling back to another mechanism (ours are derived from `typeof(Transformations)` at runtime), and 3.0 dropped Jellyfin 10.10.7, so 10.10 users stay on a 2.5.x release with our `net8.0` build.
+
+No live Jellyfin installation was upgraded during this work; the beta exists to exercise plugin loading and injection end to end.
 
 The remaining sections preserve the original audit findings before these changes.
 
@@ -48,6 +50,8 @@ An isolated copy compiled successfully after changing only project framework/pac
 Jellyfin explicitly requires plugins to be retargeted and rebuilt for .NET 10 in its [12.0 release notes](https://github.com/jellyfin/jellyfin/releases/tag/v12.0). An old ABI entry being visible in the catalogue is not proof of binary compatibility.
 
 ### 3. Verify the automatic injection dependency
+
+Update 2026-09-08: File Transformation 3.0.0.0 was published later the same day with a Jellyfin 12.0 asset; see the implementation follow-up above. The paragraphs below record the state at audit time.
 
 The latest published [File Transformation release](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases/tag/2.5.11.0) observed was `2.5.11.0`, with assets for Jellyfin 10.11.7–10.11.11 only. Its README describes releases as specific to individual Jellyfin versions. The documented catalogue returned an empty array during this audit, so it did not establish availability of a 12.0 package.
 
