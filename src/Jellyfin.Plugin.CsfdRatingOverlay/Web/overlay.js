@@ -95,12 +95,18 @@
       }
   }
 
+  function getRequestHeaders() {
+      const token = window.ApiClient.accessToken ? window.ApiClient.accessToken() : window.ApiClient._accessToken;
+      const headers = { 'Content-Type': 'application/json' };
+      // Supported by both Jellyfin 10.11 and 12, including when legacy auth is disabled.
+      if (token) headers.Authorization = 'MediaBrowser Token="' + token + '"';
+      return headers;
+  }
+
   async function checkClientConfig() {
       try {
-          const token = window.ApiClient.accessToken ? window.ApiClient.accessToken() : window.ApiClient._accessToken;
           const url = apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/csfd/client-config';
-          const headers = { 'Content-Type': 'application/json' };
-          if (token) headers['X-Emby-Token'] = token;
+          const headers = getRequestHeaders();
 
           const res = await fetch(url, { headers });
           if (res.ok) {
@@ -555,12 +561,8 @@
   }
 
   async function fetchBatch(ids) {
-    const token = window.ApiClient.accessToken ? window.ApiClient.accessToken() : window.ApiClient._accessToken;
     const url = apiBase.replace(/\/$/, '') + '/Plugins/CsfdRatingOverlay/csfd/items/batch';
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['X-Emby-Token'] = token;
-    }
+    const headers = getRequestHeaders();
 
     try {
       const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ itemIds: ids }) });

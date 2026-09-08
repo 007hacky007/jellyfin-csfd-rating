@@ -73,6 +73,11 @@ async function createEnv(opts = {}) {
         }
 
         if (fetchUrl.includes('/items/batch')) {
+            // Jellyfin 10.11 and 12 accept this scheme with legacy auth disabled.
+            // Reject legacy token headers so a regression cannot be hidden by the mock.
+            if (fetchOpts.headers.Authorization !== 'MediaBrowser Token="test-token"') {
+                return { ok: false, status: 401 };
+            }
             const body = JSON.parse(fetchOpts.body);
             const result = {};
             for (const id of body.itemIds) {
@@ -87,7 +92,7 @@ async function createEnv(opts = {}) {
     };
 
     // Mock ApiClient
-    window.ApiClient = {
+    window.ApiClient = opts.apiClient || {
         _serverAddress: 'http://localhost',
         _accessToken: 'test-token',
         accessToken: () => 'test-token'
@@ -193,6 +198,45 @@ async function runTests() {
         const env = await createEnv({ configResponse: true });
         await env.flush();
         assert(typeof env.window.clearCsfdCache === 'function', 'clearCsfdCache is exposed');
+    }
+
+    for (const tokenSource of ['accessToken', '_accessToken']) {
+        currentTest = `Authenticated requests using ${tokenSource}, legacy auth disabled`;
+        console.log(`\n${currentTest}`);
+        const apiClient = { _serverAddress: 'http://localhost/jellyfin' };
+        apiClient[tokenSource] = tokenSource === 'accessToken' ? () => 'test-token' : 'test-token';
+        const env = await createEnv({
+            apiClient,
+            configResponse: true,
+            url: 'http://localhost/jellyfin/web/index.html#/details?id=' + TEST_ID_RAW,
+            bodyHtml: '<div class="mainDetailButtons"><button class="btnPlaystate" data-type="Movie"></button></div>'
+                + '<div class="itemMiscInfo itemMiscInfo-primary"></div>'
+                + '<div class="card" data-type="Movie" data-id="' + TEST_ID_RAW + '">'
+                + '<div class="cardScalable"><a class="cardImageContainer"></a></div></div>'
+        });
+        await env.flush(1000);
+        const configRequest = env.fetchCalls.find(call => call.url.includes('client-config'));
+        const batchRequest = env.fetchCalls.find(call => call.url.includes('/items/batch'));
+        for (const [name, request] of [['config', configRequest], ['batch', batchRequest]]) {
+            assert(request?.opts.headers.Authorization === 'MediaBrowser Token="test-token"', `${name} sends modern authorization`);
+            assert(request?.url.startsWith('http://localhost/jellyfin/Plugins/'), `${name} preserves the server base URL`);
+            assert(request && !Object.keys(request.opts.headers).some(key => /^X-(Emby|MediaBrowser)-/i.test(key)), `${name} does not rely on legacy headers`);
+        }
+        assert(env.getDetailText()?.includes('7.4'), 'Uncached detail rating loads with legacy auth disabled');
+        assert(env.document.querySelector('.csfd-rating-badge')?.textContent.includes('7.4'), 'Uncached poster rating loads with legacy auth disabled');
+    }
+
+    currentTest = 'Anonymous client config before login';
+    console.log(`\n${currentTest}`);
+    {
+        const env = await createEnv({
+            configResponse: false,
+            apiClient: { _serverAddress: 'http://localhost', accessToken: () => null }
+        });
+        await env.flush();
+        const request = env.fetchCalls.find(call => call.url.includes('client-config'));
+        assert(request && !('Authorization' in request.opts.headers), 'Missing token does not send an invalid authorization header');
+        assert(env.window.localStorage.getItem('csfdOverlayDetailEnabled') === 'false', 'Anonymous configuration still loads');
     }
 
     // ----------------------------------------------------------
@@ -396,7 +440,7 @@ async function runTests() {
         const env = await createEnv({
             configResponse: true,
             url: 'http://localhost/web/index.html#!/details?id=' + TEST_ID_RAW + '&serverId=abc',
-            bodyHtml: '<div class="itemDetailPage" data-type="BoxSet"><div class="itemMiscInfo itemMiscInfo-primary"></div></div>',
+            bodyHtml: '<div class="itemDetailPage"><div class="mainDetailButtons"><button class="btnPlaystate" data-type="BoxSet"></button></div><div class="itemMiscInfo itemMiscInfo-primary"></div></div>',
             sessionCache: { [TEST_ID_DASHED]: TEST_RATING }
         });
         await env.flush();
