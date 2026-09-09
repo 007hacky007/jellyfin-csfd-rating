@@ -20,8 +20,6 @@ env:
   PROJECT_PATH: src/Jellyfin.Plugin.CsfdRatingOverlay/Jellyfin.Plugin.CsfdRatingOverlay.csproj
   PLUGIN_ID: Jellyfin.Plugin.CsfdRatingOverlay
   PLUGIN_GUID: b9643a4b-5b92-4f09-94c4-45ce6bfc57e9
-  TARGET_ABI: "10.11.0"
-  FRAMEWORK: "net9.0"
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -41,6 +39,20 @@ jobs:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/overlay/package-lock.json
+
+      - name: Test overlay
+        working-directory: tests/overlay
+        run: |
+          npm ci
+          npm test
 
       - name: Determine version and tag
         shell: bash
@@ -64,14 +76,16 @@ jobs:
 
           # Jellyfin manifest requires strict numeric versions (System.Version).
           # Strip any pre-release suffix (e.g., 0.0.1-test -> 0.0.1) for the manifest.
-          MANIFEST_VERSION=$(echo "$VERSION" | sed 's/-.*//')
+          MANIFEST_VERSION="${VERSION%%-*}"
 
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "MANIFEST_VERSION=$MANIFEST_VERSION" >> $GITHUB_ENV
-          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
-          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_ENV
-          echo "BASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" >> $GITHUB_ENV
-          echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+          {
+            echo "VERSION=$VERSION"
+            echo "MANIFEST_VERSION=$MANIFEST_VERSION"
+            echo "RELEASE_TAG=$TAG"
+            echo "IS_PRERELEASE=$IS_PRERELEASE"
+            echo "BASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+            echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          } >> "$GITHUB_ENV"
 
       - name: Restore
         run: dotnet restore
@@ -80,26 +94,35 @@ jobs:
         run: dotnet test --no-restore --verbosity normal
 
       - name: Publish net8.0
-        run: dotnet publish $PROJECT_PATH -c Release -f net8.0 -o ./artifacts/publish_net8 /p:Version=$VERSION
+        run: dotnet publish "$PROJECT_PATH" -c Release -f net8.0 -o ./artifacts/publish_net8 /p:Version="$VERSION"
 
       - name: Publish net9.0
-        run: dotnet publish $PROJECT_PATH -c Release -f net9.0 -o ./artifacts/publish_net9 /p:Version=$VERSION
+        run: dotnet publish "$PROJECT_PATH" -c Release -f net9.0 -o ./artifacts/publish_net9 /p:Version="$VERSION"
+
+      - name: Publish net10.0
+        run: dotnet publish "$PROJECT_PATH" -c Release -f net10.0 -o ./artifacts/publish_net10 /p:Version="$VERSION"
 
       - name: Create zips
         shell: bash
         run: |
           cd artifacts/publish_net8
-          zip -r ../${PLUGIN_ID}_net8.zip .
+          zip -r "../${PLUGIN_ID}_net8.zip" .
           cd ../publish_net9
-          zip -r ../${PLUGIN_ID}_net9.zip .
+          zip -r "../${PLUGIN_ID}_net9.zip" .
+          cd ../publish_net10
+          zip -r "../${PLUGIN_ID}_net10.zip" .
 
       - name: Compute checksums
         shell: bash
         run: |
-          MD5_8=$(md5sum artifacts/${PLUGIN_ID}_net8.zip | cut -d ' ' -f1)
-          MD5_9=$(md5sum artifacts/${PLUGIN_ID}_net9.zip | cut -d ' ' -f1)
-          echo "ZIP_MD5_8=$MD5_8" >> $GITHUB_ENV
-          echo "ZIP_MD5_9=$MD5_9" >> $GITHUB_ENV
+          MD5_8=$(md5sum "artifacts/${PLUGIN_ID}_net8.zip" | cut -d ' ' -f1)
+          MD5_9=$(md5sum "artifacts/${PLUGIN_ID}_net9.zip" | cut -d ' ' -f1)
+          MD5_10=$(md5sum "artifacts/${PLUGIN_ID}_net10.zip" | cut -d ' ' -f1)
+          {
+            echo "ZIP_MD5_8=$MD5_8"
+            echo "ZIP_MD5_9=$MD5_9"
+            echo "ZIP_MD5_10=$MD5_10"
+          } >> "$GITHUB_ENV"
 
       - name: Generate manifest
         shell: bash
@@ -108,6 +131,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           mkdir -p artifacts
+          # Keep newer ABIs first: Jellyfin picks the first compatible entry for equal plugin versions.
           cat > artifacts/manifest.json <<EOF
           [
             {
@@ -121,6 +145,15 @@ jobs:
               "readmeUrl": "https://raw.githubusercontent.com/${REPO}/${DEFAULT_BRANCH}/README.md",
               "status": "stable",
               "versions": [
+                {
+                  "version": "${MANIFEST_VERSION}",
+                  "targetAbi": "12.0.0.0",
+                  "framework": "net10.0",
+                  "sourceUrl": "${BASE_URL}/${PLUGIN_ID}_net10.zip",
+                  "checksum": "${ZIP_MD5_10}",
+                  "timestamp": "${TIMESTAMP}",
+                  "changelog": "Build: ${RELEASE_TAG}. See release notes at https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
+                },
                 {
                   "version": "${MANIFEST_VERSION}",
                   "targetAbi": "10.11.0",
@@ -148,9 +181,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: |
             artifacts/${{ env.PLUGIN_ID }}_net8.zip
             artifacts/${{ env.PLUGIN_ID }}_net9.zip
+            artifacts/${{ env.PLUGIN_ID }}_net10.zip
             artifacts/manifest.json
           draft: false
           prerelease: ${{ env.IS_PRERELEASE }}

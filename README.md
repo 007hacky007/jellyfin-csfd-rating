@@ -23,6 +23,10 @@ Adds ČSFD ratings to Jellyfin movies and series. It fetches ratings from ČSFD,
 
 ## Installation
 
+Builds are provided for Jellyfin 10.10 (`net8.0`), 10.11 (`net9.0`), and 12.0 (`net10.0`). The plugin catalogue selects the appropriate build for your server. When installing manually, choose the ZIP matching your Jellyfin version.
+
+The overlay uses the `Authorization: MediaBrowser` header on all supported versions and works with legacy authentication disabled. Automatic injection uses the File Transformation plugin: install version 3.0.0.0 or newer on Jellyfin 12.0 and 10.11, or a 2.5.x release on Jellyfin 10.10 (3.0 dropped 10.10 support). If you prefer not to install it, use the manual injection instructions below.
+
 1. Open your Jellyfin Dashboard.
 2. Navigate to **Plugins** -> **Repositories**.
 3. Add a new repository:
@@ -31,6 +35,7 @@ Adds ČSFD ratings to Jellyfin movies and series. It fetches ratings from ČSFD,
 4. Install **ČSFD Rating Overlay** plugin.
 5. Install **File Transformation** plugin.
    - This plugin is required to automatically inject the overlay script.
+   - Jellyfin 12.0 and 10.11: version 3.0.0.0 or newer. Jellyfin 10.10: the last 2.5.x release.
    - See [jellyfin-plugin-file-transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) for installation details.
 6. Restart Jellyfin.
 7. Profit!

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node test-detail-toggle.js"
+    "test": "node test-detail-toggle.js && node test-real-overlay.js"
   },
   "keywords": [],
   "author": "",
